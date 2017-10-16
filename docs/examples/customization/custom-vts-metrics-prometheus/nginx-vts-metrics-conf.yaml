@@ -3,5 +3,7 @@ data:
   enable-vts-status: "true"
 kind: ConfigMap
 metadata:
-  name: nginx-vts-metrics-conf
-  namespace: kube-system
+  name: nginx-configuration
+  namespace: ingress-nginx
+  labels:
+    app: ingress-nginx

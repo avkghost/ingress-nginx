@@ -18,7 +18,7 @@ SHELL=/bin/bash -o pipefail -o errexit
 DIR:=$(strip $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST)))))
 INIT_BUILDX=$(DIR)/../../hack/init-buildx.sh
 
-TAG ?=v$(shell date +%m%d%Y)-$(shell git rev-parse --short HEAD)
+TAG ?=v1.0.0
 REGISTRY ?= local
 
 IMAGE = $(REGISTRY)/e2e-test-echo

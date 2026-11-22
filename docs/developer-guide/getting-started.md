@@ -126,6 +126,9 @@ to:
 ghcr.io/avkghost/ingress-nginx/controller:v2.2.10
 ```
 
+The matching NGINX base image is published as
+`ghcr.io/avkghost/ingress-nginx/nginx:v2.2.10`.
+
 The workflow currently builds `linux/amd64`, matching the validated k3s
 environment. Deploy the digest printed in the workflow summary rather than a
 mutable tag:

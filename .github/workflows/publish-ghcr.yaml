@@ -16,6 +16,7 @@ permissions:
   packages: write
 
 env:
+  BASE_IMAGE: ghcr.io/avkghost/ingress-nginx/nginx
   IMAGE: ghcr.io/avkghost/ingress-nginx/controller
 
 jobs:
@@ -76,17 +77,36 @@ jobs:
           exit-code: '1'
           format: table
 
+      - name: Tag and scan NGINX base image
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: docker tag "ingress-nginx/nginx:$TAG" "$BASE_IMAGE:$TAG"
+
+      - name: Scan NGINX base image before publishing
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: v0.76.2
+          image-ref: ${{ env.BASE_IMAGE }}:${{ steps.version.outputs.tag }}
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: '1'
+          format: table
+
       - name: Push image
         id: push
         shell: bash
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
+          docker push "$BASE_IMAGE:$TAG"
           docker push "$IMAGE:$TAG"
+          base_digest="$(docker image inspect "$BASE_IMAGE:$TAG" --format='{{index .RepoDigests 0}}')"
           digest="$(docker image inspect "$IMAGE:$TAG" --format='{{index .RepoDigests 0}}')"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           {
             echo "## Published image"
             echo
+            echo "Base: \`$base_digest\`"
             echo "\`$digest\`"
           } >> "$GITHUB_STEP_SUMMARY"

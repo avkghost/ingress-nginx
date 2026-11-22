@@ -1,0 +1,2794 @@
+diff --git a/auto/cc/clang b/auto/cc/clang
+index 73b3f94bd..8940ad9e8 100644
+--- a/auto/cc/clang
++++ b/auto/cc/clang
+@@ -80,7 +80,7 @@ if [ "$NGX_SYSTEM" = "Darwin" ]; then
+ fi
+
+ # stop on warning
+-CFLAGS="$CFLAGS -Werror"
++#CFLAGS="$CFLAGS -Werror"
+
+ # debug
+ CFLAGS="$CFLAGS -g"
+diff --git a/auto/cc/conf b/auto/cc/conf
+index ba31cb88c..7856c1b0e 100644
+--- a/auto/cc/conf
++++ b/auto/cc/conf
+@@ -144,7 +144,7 @@ fi
+ CFLAGS="$CFLAGS $NGX_CC_OPT"
+ NGX_TEST_LD_OPT="$NGX_LD_OPT"
+
+-if [ "$NGX_PLATFORM" != win32 ]; then
++if [ 1 ]; then
+
+     if test -n "$NGX_LD_OPT"; then
+         ngx_feature=--with-ld-opt=\"$NGX_LD_OPT\"
+diff --git a/auto/cc/gcc b/auto/cc/gcc
+index debd0eb08..412d50d83 100644
+--- a/auto/cc/gcc
++++ b/auto/cc/gcc
+@@ -158,7 +158,7 @@ esac
+
+
+ # stop on warning
+-CFLAGS="$CFLAGS -Werror"
++#CFLAGS="$CFLAGS -Werror"
+
+ # debug
+ CFLAGS="$CFLAGS -g"
+diff --git a/auto/cc/icc b/auto/cc/icc
+index 96946425b..214bdaed7 100644
+--- a/auto/cc/icc
++++ b/auto/cc/icc
+@@ -103,7 +103,7 @@ case "$NGX_CC_VER" in
+ esac
+
+ # stop on warning
+-CFLAGS="$CFLAGS -Werror"
++#CFLAGS="$CFLAGS -Werror"
+
+ # debug
+ CFLAGS="$CFLAGS -g"
+diff --git a/auto/options b/auto/options
+index 271153a76..506836d1a 100644
+--- a/auto/options
++++ b/auto/options
+@@ -370,6 +370,7 @@ use the \"--with-mail_ssl_module\" option instead"
+         --with-pcre)                     USE_PCRE=YES               ;;
+         --with-pcre=*)                   PCRE="$value"              ;;
+         --with-pcre-opt=*)               PCRE_OPT="$value"          ;;
++        --with-pcre-conf-opt=*)          PCRE_CONF_OPT="$value"     ;;
+         --with-pcre-jit)                 PCRE_JIT=YES               ;;
+         --without-pcre2)                 PCRE2=DISABLED             ;;
+
+@@ -592,6 +593,7 @@ cat << END
+   --with-pcre                        force PCRE library usage
+   --with-pcre=DIR                    set path to PCRE library sources
+   --with-pcre-opt=OPTIONS            set additional build options for PCRE
++  --with-pcre-conf-opt=OPTIONS       set additional configure options for PCRE
+   --with-pcre-jit                    build PCRE with JIT compilation support
+   --without-pcre2                    do not use PCRE2 library
+
+diff --git a/auto/unix b/auto/unix
+index 4e85090ab..b3ad4ff66 100644
+--- a/auto/unix
++++ b/auto/unix
+@@ -1032,3 +1032,27 @@ ngx_feature_test='struct addrinfo *res;
+                   if (getaddrinfo("localhost", NULL, NULL, &res) != 0) return 1;
+                   freeaddrinfo(res)'
+ . auto/feature
++
++ngx_feature="SOCK_CLOEXEC support"
++ngx_feature_name="NGX_HAVE_SOCKET_CLOEXEC"
++ngx_feature_run=no
++ngx_feature_incs="#include <sys/types.h>
++                  #include <sys/socket.h>"
++ngx_feature_path=
++ngx_feature_libs=
++ngx_feature_test="int fd;
++                  fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);"
++. auto/feature
++
++ngx_feature="FD_CLOEXEC support"
++ngx_feature_name="NGX_HAVE_FD_CLOEXEC"
++ngx_feature_run=no
++ngx_feature_incs="#include <sys/types.h>
++                  #include <sys/socket.h>
++                  #include <fcntl.h>"
++ngx_feature_path=
++ngx_feature_libs=
++ngx_feature_test="int fd;
++                  fd = socket(AF_INET, SOCK_STREAM, 0);
++                  fcntl(fd, F_SETFD, FD_CLOEXEC);"
++. auto/feature
+diff --git a/src/core/nginx.c b/src/core/nginx.c
+index 0deb27b7f..f7ba051fb 100644
+--- a/src/core/nginx.c
++++ b/src/core/nginx.c
+@@ -188,6 +188,7 @@ static u_char      *ngx_error_log;
+ static u_char      *ngx_conf_file;
+ static u_char      *ngx_conf_params;
+ static char        *ngx_signal;
++ngx_pool_t         *saved_init_cycle_pool = NULL;
+
+
+ static char **ngx_os_environ;
+@@ -256,6 +257,8 @@ main(int argc, char *const *argv)
+         return 1;
+     }
+
++    saved_init_cycle_pool = init_cycle.pool;
++
+     if (ngx_save_argv(&init_cycle, argc, argv) != NGX_OK) {
+         return 1;
+     }
+@@ -1113,6 +1116,8 @@ ngx_core_module_create_conf(ngx_cycle_t *cycle)
+
+     ccf->daemon = NGX_CONF_UNSET;
+     ccf->master = NGX_CONF_UNSET;
++    ccf->privileged_agent = NGX_CONF_UNSET;
++    ccf->privileged_agent_connections = NGX_CONF_UNSET_UINT;
+     ccf->timer_resolution = NGX_CONF_UNSET_MSEC;
+     ccf->shutdown_timeout = NGX_CONF_UNSET_MSEC;
+
+@@ -1142,6 +1147,8 @@ ngx_core_module_init_conf(ngx_cycle_t *cycle, void *conf)
+
+     ngx_conf_init_value(ccf->daemon, 1);
+     ngx_conf_init_value(ccf->master, 1);
++    ngx_conf_init_value(ccf->privileged_agent, 0);
++    ngx_conf_init_uint_value(ccf->privileged_agent_connections, 512);
+     ngx_conf_init_msec_value(ccf->timer_resolution, 0);
+     ngx_conf_init_msec_value(ccf->shutdown_timeout, 0);
+
+diff --git a/src/core/ngx_connection.c b/src/core/ngx_connection.c
+index 7ea7706e5..f026807a5 100644
+--- a/src/core/ngx_connection.c
++++ b/src/core/ngx_connection.c
+@@ -1147,6 +1147,12 @@ ngx_close_listening_sockets(ngx_cycle_t *cycle)
+         }
+ #endif
+
++#if (NGX_HAVE_REUSEPORT)
++        if (ls[i].fd == (ngx_socket_t) -1) {
++            continue;
++        }
++#endif
++
+         c = ls[i].connection;
+
+         if (c) {
+diff --git a/src/core/ngx_core.h b/src/core/ngx_core.h
+index 02890b843..db158cf3b 100644
+--- a/src/core/ngx_core.h
++++ b/src/core/ngx_core.h
+@@ -118,4 +118,6 @@ void ngx_cpuinfo(void);
+ #define NGX_DISABLE_SYMLINKS_NOTOWNER   2
+ #endif
+
++extern ngx_pool_t        *saved_init_cycle_pool;
++
+ #endif /* _NGX_CORE_H_INCLUDED_ */
+diff --git a/src/core/ngx_cycle.c b/src/core/ngx_cycle.c
+index e5fd40285..1826a9ed9 100644
+--- a/src/core/ngx_cycle.c
++++ b/src/core/ngx_cycle.c
+@@ -264,6 +264,9 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
+     }
+
+
++#if !(NGX_WIN32)
++    ngx_proc_exit_top_handler = ngx_proc_exit_def_handler;
++#endif
+     conf.ctx = cycle->conf_ctx;
+     conf.cycle = cycle;
+     conf.pool = pool;
+@@ -780,6 +783,10 @@ old_shm_zone_done:
+
+     if (ngx_process == NGX_PROCESS_MASTER || ngx_is_init_cycle(old_cycle)) {
+
++        if (ngx_is_init_cycle(old_cycle)) {
++            saved_init_cycle_pool = NULL;
++        }
++
+         ngx_destroy_pool(old_cycle->pool);
+         cycle->old_cycle = NULL;
+
+diff --git a/src/core/ngx_cycle.h b/src/core/ngx_cycle.h
+index 0c47f25fe..4ec9d556b 100644
+--- a/src/core/ngx_cycle.h
++++ b/src/core/ngx_cycle.h
+@@ -22,9 +22,17 @@
+ #define NGX_DEBUG_POINTS_ABORT  2
+
+
++#define HAVE_PRIVILEGED_PROCESS_PATCH   1
++
++
++#define HAVE_INTERCEPT_ERROR_LOG_PATCH
++
++
+ typedef struct ngx_shm_zone_s  ngx_shm_zone_t;
+
+ typedef ngx_int_t (*ngx_shm_zone_init_pt) (ngx_shm_zone_t *zone, void *data);
++typedef ngx_int_t (*ngx_log_intercept_pt) (ngx_log_t *log, ngx_uint_t level,
++    u_char *buf, size_t len);
+
+ struct ngx_shm_zone_s {
+     void                     *data;
+@@ -83,12 +91,18 @@ struct ngx_cycle_s {
+     ngx_str_t                 error_log;
+     ngx_str_t                 lock_file;
+     ngx_str_t                 hostname;
++
++    ngx_log_intercept_pt      intercept_error_log_handler;
++    void                     *intercept_error_log_data;
++    unsigned                  entered_logger;    /* :1 */
+ };
+
+
+ typedef struct {
+     ngx_flag_t                daemon;
+     ngx_flag_t                master;
++    ngx_flag_t                privileged_agent;
++    ngx_uint_t                privileged_agent_connections;
+
+     ngx_msec_t                timer_resolution;
+     ngx_msec_t                shutdown_timeout;
+diff --git a/src/core/ngx_log.c b/src/core/ngx_log.c
+index 0c094265e..eb7a98981 100644
+--- a/src/core/ngx_log.c
++++ b/src/core/ngx_log.c
+@@ -112,6 +112,8 @@ ngx_log_error_core(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
+     ngx_uint_t   wrote_stderr, debug_connection;
+     u_char       errstr[NGX_MAX_ERROR_STR];
+
++    ngx_log_intercept_pt    log_intercept = NULL;
++
+     last = errstr + NGX_MAX_ERROR_STR;
+
+     p = ngx_cpymem(errstr, ngx_cached_err_log_time.data,
+@@ -153,6 +155,16 @@ ngx_log_error_core(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
+         p = last - NGX_LINEFEED_SIZE;
+     }
+
++    if (ngx_cycle) {
++        log_intercept = ngx_cycle->intercept_error_log_handler;
++    }
++
++    if (log_intercept && !ngx_cycle->entered_logger) {
++        ngx_cycle->entered_logger = 1;
++        log_intercept(log, level, errstr, p - errstr);
++        ngx_cycle->entered_logger = 0;
++    }
++
+     ngx_linefeed(p);
+
+     wrote_stderr = 0;
+diff --git a/src/core/ngx_log.h b/src/core/ngx_log.h
+index 78cea2a3b..c23aecb9c 100644
+--- a/src/core/ngx_log.h
++++ b/src/core/ngx_log.h
+@@ -76,7 +76,9 @@ struct ngx_log_s {
+ };
+
+
+-#define NGX_MAX_ERROR_STR   2048
++#ifndef NGX_MAX_ERROR_STR
++#define NGX_MAX_ERROR_STR   4096
++#endif
+
+
+ /*********************************/
+diff --git a/src/core/ngx_proxy_protocol.c b/src/core/ngx_proxy_protocol.c
+index 49888b986..fa682f62d 100644
+--- a/src/core/ngx_proxy_protocol.c
++++ b/src/core/ngx_proxy_protocol.c
+@@ -12,6 +12,39 @@
+ #define NGX_PROXY_PROTOCOL_AF_INET          1
+ #define NGX_PROXY_PROTOCOL_AF_INET6         2
+
++#define NGX_PROXY_PROTOCOL_V2_SIG              "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A"
++#define NGX_PROXY_PROTOCOL_V2_SIG_LEN          12
++#define NGX_PROXY_PROTOCOL_V2_HDR_LEN          16
++#define NGX_PROXY_PROTOCOL_V2_HDR_LEN_INET \
++                (NGX_PROXY_PROTOCOL_V2_HDR_LEN + (4 + 4 + 2 + 2))
++#define NGX_PROXY_PROTOCOL_V2_HDR_LEN_INET6 \
++                (NGX_PROXY_PROTOCOL_V2_HDR_LEN + (16 + 16 + 2 + 2))
++
++#define NGX_PROXY_PROTOCOL_V2_CMD_PROXY        (0x20 | 0x01)
++
++#define NGX_PROXY_PROTOCOL_V2_TRANS_STREAM     0x01
++
++#define NGX_PROXY_PROTOCOL_V2_FAM_UNSPEC       0x00
++#define NGX_PROXY_PROTOCOL_V2_FAM_INET         0x10
++#define NGX_PROXY_PROTOCOL_V2_FAM_INET6        0x20
++
++#define NGX_PROXY_PROTOCOL_V2_TYPE_ALPN             0x01
++#define NGX_PROXY_PROTOCOL_V2_TYPE_AUTHORITY        0x02 # Not implemented
++#define NGX_PROXY_PROTOCOL_V2_TYPE_CRC32C           0x03 # Not implemented
++#define NGX_PROXY_PROTOCOL_V2_TYPE_NOOP             0x04 # Not implemented
++#define NGX_PROXY_PROTOCOL_V2_TYPE_UNIQUE_ID        0x05 # Not implemented
++#define NGX_PROXY_PROTOCOL_V2_TYPE_SSL              0x20
++#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_VERSION   0x21
++#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CN        0x22
++#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CIPHER    0x23
++#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_SIG_ALG   0x24
++#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG   0x25
++#define NGX_PROXY_PROTOCOL_V2_TYPE_NETNS            0x30 # Not implemented
++
++#define NGX_PROXY_PROTOCOL_V2_CLIENT_SSL            0x01
++#define NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN      0x02
++#define NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_SESS      0x04
++
+
+ #define ngx_proxy_protocol_parse_uint16(p)                                    \
+     ( ((uint16_t) (p)[0] << 8)                                                \
+@@ -66,6 +99,53 @@ typedef struct {
+ } ngx_proxy_protocol_tlv_entry_t;
+
+
++typedef union {
++    struct {
++        uint32_t          src_addr;
++        uint32_t          dst_addr;
++        uint16_t          src_port;
++        uint16_t          dst_port;
++    } ip4;
++    struct {
++        uint8_t           src_addr[16];
++        uint8_t           dst_addr[16];
++        uint16_t          src_port;
++        uint16_t          dst_port;
++    } ip6;
++} ngx_proxy_protocol_addrs_t;
++
++
++typedef struct {
++    u_char                        signature[12];
++    uint8_t                       version_command;
++    uint8_t                       family_transport;
++    uint16_t                      len;
++    ngx_proxy_protocol_addrs_t    addr;
++} ngx_proxy_protocol_v2_header_t;
++
++
++struct ngx_tlv_s {
++    uint8_t     type;
++    uint8_t     length_hi;
++    uint8_t     length_lo;
++    uint8_t     value[0];
++} __attribute__((packed));
++
++typedef struct ngx_tlv_s ngx_tlv_t;
++
++
++#if (NGX_STREAM_SSL)
++struct ngx_tlv_ssl_s {
++    ngx_tlv_t   tlv;
++    uint8_t     client;
++    uint32_t    verify;
++    uint8_t     sub_tlv[];
++} __attribute__((packed));
++
++typedef struct ngx_tlv_ssl_s ngx_tlv_ssl_t;
++#endif
++
++
+ static u_char *ngx_proxy_protocol_read_addr(ngx_connection_t *c, u_char *p,
+     u_char *last, ngx_str_t *addr);
+ static u_char *ngx_proxy_protocol_read_port(u_char *p, u_char *last,
+@@ -74,6 +154,15 @@ static u_char *ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf,
+     u_char *last);
+ static ngx_int_t ngx_proxy_protocol_lookup_tlv(ngx_connection_t *c,
+     ngx_str_t *tlvs, ngx_uint_t type, ngx_str_t *value);
++static u_char *ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf,
++    u_char *last);
++#if (NGX_HAVE_INET6)
++static void ngx_v4tov6(struct in6_addr *sin6_addr, struct sockaddr *addr);
++#endif
++#if (NGX_STREAM_SSL)
++static u_char *ngx_copy_tlv(u_char *pos, u_char *last, u_char type,
++        u_char *value, uint16_t value_len);
++#endif
+
+
+ static ngx_proxy_protocol_tlv_entry_t  ngx_proxy_protocol_tlv_entries[] = {
+@@ -277,7 +366,8 @@ ngx_proxy_protocol_read_port(u_char *p, u_char *last, in_port_t *port,
+
+
+ u_char *
+-ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last)
++ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last,
++        ngx_uint_t pp_version)
+ {
+     ngx_uint_t  port, lport;
+
+@@ -291,6 +381,10 @@ ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last)
+         return NULL;
+     }
+
++    if (pp_version == 2) {
++        return ngx_proxy_protocol_v2_write(c, buf, last);
++    }
++
+     switch (c->sockaddr->sa_family) {
+
+     case AF_INET:
+@@ -612,3 +706,358 @@ ngx_proxy_protocol_lookup_tlv(ngx_connection_t *c, ngx_str_t *tlvs,
+
+     return NGX_DECLINED;
+ }
++
++
++static u_char *
++ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
++{
++    struct sockaddr                 *src, *dst;
++    ngx_proxy_protocol_v2_header_t  *header;
++#if (NGX_HAVE_INET6)
++    struct in6_addr                  v6_tmp;
++    ngx_int_t                        v6_used;
++#endif
++#if (NGX_STREAM_SSL)
++    ngx_tlv_ssl_t                   *tlv;
++    u_char                          *value, *pos;
++    u_char                           kbuf[100];
++    const unsigned char             *data;
++    unsigned int                     data_len;
++
++    X509                            *crt;
++	EVP_PKEY                        *key;
++	const ASN1_OBJECT               *algorithm;
++    const char                      *s;
++
++    long                             rc;
++    size_t                           tlv_len;
++#endif
++    size_t                           len;
++
++    header = (ngx_proxy_protocol_v2_header_t *) buf;
++
++    header->len = 0;
++
++    src = c->sockaddr;
++    dst = c->local_sockaddr;
++
++    len = 0;
++
++#if (NGX_HAVE_INET6)
++    v6_used = 0;
++#endif
++
++    ngx_memcpy(header->signature, NGX_PROXY_PROTOCOL_V2_SIG,
++            NGX_PROXY_PROTOCOL_V2_SIG_LEN);
++
++    header->version_command = NGX_PROXY_PROTOCOL_V2_CMD_PROXY;
++    header->family_transport = NGX_PROXY_PROTOCOL_V2_TRANS_STREAM;
++
++    /** Addrs */
++
++    switch (src->sa_family) {
++
++    case AF_INET:
++
++        if (dst->sa_family == AF_INET) {
++
++            header->addr.ip4.src_addr =
++                    ((struct sockaddr_in *) src)->sin_addr.s_addr;
++            header->addr.ip4.src_port = ((struct sockaddr_in *) src)->sin_port;
++        }
++#if (NGX_HAVE_INET6)
++        else /** dst == AF_INET6 */{
++
++            ngx_v4tov6(&v6_tmp, src);
++            ngx_memcpy(header->addr.ip6.src_addr, &v6_tmp, 16);
++            header->addr.ip6.src_port = ((struct sockaddr_in *) src)->sin_port;
++        }
++#endif
++        break;
++
++#if (NGX_HAVE_INET6)
++    case AF_INET6:
++        v6_used = 1;
++
++        ngx_memcpy(header->addr.ip6.src_addr,
++                &((struct sockaddr_in6 *) src)->sin6_addr, 16);
++        header->addr.ip6.src_port = ((struct sockaddr_in6 *) src)->sin6_port;
++
++        break;
++#endif
++
++    default:
++        ngx_log_debug1(NGX_LOG_DEBUG_CORE, c->log, 0,
++                    "PROXY protocol v2 unsupported src address family %ui",
++                    src->sa_family);
++        goto unspec;
++    };
++
++    switch (dst->sa_family) {
++    case AF_INET:
++
++        if (src->sa_family == AF_INET) {
++
++            header->addr.ip4.dst_addr =
++                ((struct sockaddr_in *) dst)->sin_addr.s_addr;
++            header->addr.ip4.dst_port = ((struct sockaddr_in *) dst)->sin_port;
++        }
++#if (NGX_HAVE_INET6)
++        else /** src == AF_INET6 */{
++
++            ngx_v4tov6(&v6_tmp, dst);
++            ngx_memcpy(header->addr.ip6.dst_addr, &v6_tmp, 16);
++            header->addr.ip6.dst_port = ((struct sockaddr_in *) dst)->sin_port;
++
++        }
++#endif
++        break;
++
++#if (NGX_HAVE_INET6)
++    case AF_INET6:
++        v6_used = 1;
++
++        ngx_memcpy(header->addr.ip6.dst_addr,
++                &((struct sockaddr_in6 *) dst)->sin6_addr, 16);
++        header->addr.ip6.dst_port = ((struct sockaddr_in6 *) dst)->sin6_port;
++
++        break;
++#endif
++
++    default:
++        ngx_log_debug1(NGX_LOG_DEBUG_CORE, c->log, 0,
++                    "PROXY protocol v2 unsupported dest address family %ui",
++                    dst->sa_family);
++        goto unspec;
++    }
++
++#if (NGX_HAVE_INET6)
++    if (!v6_used) {
++        header->family_transport |= NGX_PROXY_PROTOCOL_V2_FAM_INET;
++        len = NGX_PROXY_PROTOCOL_V2_HDR_LEN_INET;
++
++    } else {
++        header->family_transport |= NGX_PROXY_PROTOCOL_V2_FAM_INET6;
++        len = NGX_PROXY_PROTOCOL_V2_HDR_LEN_INET6;
++
++    }
++#else
++    header->family_transport |= NGX_PROXY_PROTOCOL_V2_FAM_INET;
++    len = NGX_PROXY_PROTOCOL_V2_HDR_LEN_INET;
++#endif
++
++    /** SSL TLVs */
++#if (NGX_STREAM_SSL)
++
++    if (c->ssl != NULL) {
++
++        data = NULL;
++        data_len = 0;
++
++        tlv = (ngx_tlv_ssl_t *) (buf + len);
++        ngx_memzero(tlv, sizeof(ngx_tlv_ssl_t));
++
++        tlv->tlv.type = NGX_PROXY_PROTOCOL_V2_TYPE_SSL;
++        pos = buf + len + sizeof(ngx_tlv_ssl_t);
++
++        tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_SSL;
++
++#ifdef TLSEXT_TYPE_application_layer_protocol_negotiation
++        SSL_get0_alpn_selected(c->ssl->connection, &data, &data_len);
++
++#ifdef TLSEXT_TYPE_next_proto_neg
++        if (data_len == 0) {
++            SSL_get0_next_proto_negotiated(c->ssl->connection,
++                                           &data, &data_len);
++        }
++#endif
++
++#else /* TLSEXT_TYPE_next_proto_neg */
++        SSL_get0_next_proto_negotiated(c->ssl->connection, &data, &data_len);
++#endif
++
++        if (data_len) {
++
++            pos = ngx_copy_tlv(pos, last,
++                               NGX_PROXY_PROTOCOL_V2_TYPE_ALPN,
++                               (u_char *) data, (uint16_t) data_len);
++            if (pos == NULL) {
++                return NULL;
++            }
++        }
++
++        value = (u_char *) SSL_get_version(c->ssl->connection);
++        if (value != NULL) {
++
++            pos = ngx_copy_tlv(pos, last,
++                               NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_VERSION,
++                               value, ngx_strlen(value));
++            if (pos == NULL) {
++                return NULL;
++            }
++        }
++
++        crt = SSL_get0_peer_certificate(c->ssl->connection);
++        if (crt != NULL) {
++            tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_SESS;
++
++            rc = SSL_get_verify_result(c->ssl->connection);
++            tlv->verify = htonl(rc);
++
++            if (rc == X509_V_OK) {
++                if (ngx_ssl_ocsp_get_status(c, &s) == NGX_OK) {
++                    tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
++                }
++            }
++
++            X509_NAME *subject_name_value = X509_get_subject_name(crt);
++            if(subject_name_value != NULL) {
++                int nid = OBJ_txt2nid("CN");
++                int index = X509_NAME_get_index_by_NID(subject_name_value, nid, -1);
++
++                X509_NAME_ENTRY *subject_name_cn_entry = X509_NAME_get_entry(subject_name_value, index);
++                if (subject_name_cn_entry) {
++                    ASN1_STRING *subject_name_cn_data_asn1 = X509_NAME_ENTRY_get_data(subject_name_cn_entry);
++
++                    if (subject_name_cn_data_asn1 != NULL) {
++                        value = (u_char *) ASN1_STRING_get0_data(subject_name_cn_data_asn1);
++                        if(value != NULL) {
++                            pos = ngx_copy_tlv(pos, last,
++                                        NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CN,
++                                        value, ngx_strlen(value));
++                            if (pos == NULL) {
++                                return NULL;
++                            }
++                        }
++                    }
++                }
++            }
++        }
++
++
++        crt = SSL_get_certificate(c->ssl->connection);
++        if (crt != NULL) {
++            key = X509_get_pubkey(crt);
++
++            /** Key */
++            if (key != NULL) {
++                switch (EVP_PKEY_base_id(key)) {
++                case EVP_PKEY_RSA:
++                    value = (u_char *) "RSA";
++                    break;
++                case EVP_PKEY_EC:
++                    value = (u_char *) "EC";
++                    break;
++                case EVP_PKEY_DSA:
++                    value = (u_char *) "DSA";
++                    break;
++                default:
++                    value = NULL;
++                    break;
++                }
++
++                if (value != NULL) {
++                    value = ngx_snprintf(kbuf, sizeof(kbuf) - 1, "%s%d%Z",
++                            value, EVP_PKEY_bits(key));
++
++                    pos = ngx_copy_tlv(pos, last,
++                                NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG,
++                                kbuf, ngx_strlen(kbuf));
++                }
++
++                EVP_PKEY_free(key);
++
++                if (pos == NULL) {
++                    return NULL;
++                }
++            }
++
++            /* ALG */
++            X509_ALGOR_get0(&algorithm, NULL, NULL, X509_get0_tbs_sigalg(crt));
++	        value = (u_char *) OBJ_nid2sn(OBJ_obj2nid(algorithm));
++
++            if (value != NULL) {
++
++                pos = ngx_copy_tlv(pos, last,
++                            NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_SIG_ALG,
++                            value, ngx_strlen(value));
++                if (pos == NULL) {
++                    return NULL;
++                }
++            }
++        }
++
++        value = (u_char *) SSL_get_cipher_name(c->ssl->connection);
++        if (value != NULL) {
++
++            pos = ngx_copy_tlv(pos, last,
++                    NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CIPHER,
++                    value, ngx_strlen(value));
++            if (pos == NULL) {
++                return NULL;
++            }
++        }
++
++        tlv_len = pos - (buf + len);
++
++        tlv->tlv.length_hi = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) >> 8;
++        tlv->tlv.length_lo = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
++
++        len = len + tlv_len;
++    }
++
++#endif
++
++    header->len = htons(len - NGX_PROXY_PROTOCOL_V2_HDR_LEN);
++    return buf + len;
++
++unspec:
++    header->family_transport |= NGX_PROXY_PROTOCOL_V2_FAM_UNSPEC;
++    header->len = 0;
++
++    return buf + NGX_PROXY_PROTOCOL_V2_HDR_LEN;
++}
++
++
++#if (NGX_HAVE_INET6)
++static void
++ngx_v4tov6(struct in6_addr *sin6_addr, struct sockaddr *addr)
++{
++    static const char rfc4291[] = { 0x00, 0x00, 0x00, 0x00,
++                                    0x00, 0x00, 0x00, 0x00,
++                                    0x00, 0x00, 0xFF, 0xFF };
++
++    struct in_addr tmp_addr, *sin_addr;
++
++    sin_addr = &((struct sockaddr_in *) addr)->sin_addr;
++
++    tmp_addr.s_addr = sin_addr->s_addr;
++    ngx_memcpy(sin6_addr->s6_addr, rfc4291, sizeof(rfc4291));
++    ngx_memcpy(sin6_addr->s6_addr + 12, &tmp_addr.s_addr, 4);
++}
++#endif
++
++
++#if (NGX_STREAM_SSL)
++
++static u_char *
++ngx_copy_tlv(u_char *pos, u_char *last, u_char type,
++        u_char *value, uint16_t value_len)
++{
++    ngx_tlv_t   *tlv;
++
++    if (last - pos < (long) sizeof(*tlv)) {
++        return NULL;
++    }
++
++    tlv = (ngx_tlv_t *) pos;
++
++    tlv->type = type;
++    tlv->length_hi = (uint16_t) value_len >> 8;
++    tlv->length_lo = (uint16_t) value_len & 0x00ff;
++    ngx_memcpy(tlv->value, value, value_len);
++
++    return pos + (value_len + sizeof(*tlv));
++}
++
++#endif
+diff --git a/src/core/ngx_proxy_protocol.h b/src/core/ngx_proxy_protocol.h
+index d1749f57b..bc2e0a240 100644
+--- a/src/core/ngx_proxy_protocol.h
++++ b/src/core/ngx_proxy_protocol.h
+@@ -29,7 +29,7 @@ struct ngx_proxy_protocol_s {
+ u_char *ngx_proxy_protocol_read(ngx_connection_t *c, u_char *buf,
+     u_char *last);
+ u_char *ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf,
+-    u_char *last);
++    u_char *last, ngx_uint_t pp_version);
+ ngx_int_t ngx_proxy_protocol_get_tlv(ngx_connection_t *c, ngx_str_t *name,
+     ngx_str_t *value);
+
+diff --git a/src/core/ngx_resolver.c b/src/core/ngx_resolver.c
+index 1cf772772..811917719 100644
+--- a/src/core/ngx_resolver.c
++++ b/src/core/ngx_resolver.c
+@@ -9,12 +9,26 @@
+ #include <ngx_core.h>
+ #include <ngx_event.h>
+
++#if !(NGX_WIN32)
++#include <resolv.h>
++#endif
++
+
+ #define NGX_RESOLVER_UDP_SIZE   4096
+
+ #define NGX_RESOLVER_TCP_RSIZE  (2 + 65535)
+ #define NGX_RESOLVER_TCP_WSIZE  8192
+
++#if !(NGX_WIN32)
++/*
++ * note that 2KB should be more than enough for majority of the
++ * resolv.conf files out there. it also acts as a safety guard to prevent
++ * abuse.
++ */
++#define NGX_RESOLVER_FILE_BUF_SIZE  2048
++#define NGX_RESOLVER_FILE_NAME      "/etc/resolv.conf"
++#endif
++
+
+ typedef struct {
+     u_char  ident_hi;
+@@ -130,6 +144,191 @@ static ngx_resolver_node_t *ngx_resolver_lookup_addr6(ngx_resolver_t *r,
+ #endif
+
+
++#if !(NGX_WIN32)
++static ngx_int_t
++ngx_resolver_read_resolv_conf(ngx_conf_t *cf, ngx_resolver_t *r, u_char *path,
++    size_t path_len)
++{
++    ngx_url_t                        u;
++    ngx_resolver_connection_t       *rec;
++    ngx_fd_t                         fd;
++    ngx_file_t                       file;
++    u_char                           buf[NGX_RESOLVER_FILE_BUF_SIZE];
++    u_char                           ipv6_buf[NGX_INET6_ADDRSTRLEN];
++    ngx_uint_t                       address = 0, j, total = 0;
++    ssize_t                          n, i;
++    enum {
++        sw_nameserver,
++        sw_spaces,
++        sw_address,
++        sw_skip
++    } state;
++
++    file.name.data = path;
++    file.name.len = path_len;
++
++    if (ngx_conf_full_name(cf->cycle, &file.name, 1) != NGX_OK) {
++        return NGX_ERROR;
++    }
++
++    fd = ngx_open_file(file.name.data, NGX_FILE_RDONLY,
++                       NGX_FILE_OPEN, 0);
++
++    if (fd == NGX_INVALID_FILE) {
++        ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno,
++                           ngx_open_file_n " \"%s\" failed", file.name.data);
++
++        return NGX_ERROR;
++    }
++
++    ngx_memzero(&file, sizeof(ngx_file_t));
++
++    file.fd = fd;
++    file.log = cf->log;
++
++    state = sw_nameserver;
++
++    n = ngx_read_file(&file, buf, NGX_RESOLVER_FILE_BUF_SIZE, 0);
++
++    if (n == NGX_ERROR) {
++        ngx_conf_log_error(NGX_LOG_ALERT, cf, ngx_errno,
++                           ngx_read_file_n " \"%s\" failed", file.name.data);
++    }
++
++    if (ngx_close_file(file.fd) == NGX_FILE_ERROR) {
++        ngx_conf_log_error(NGX_LOG_ALERT, cf, ngx_errno,
++                           ngx_close_file_n " \"%s\" failed", file.name.data);
++    }
++
++    if (n == NGX_ERROR) {
++        return NGX_ERROR;
++    }
++
++    if (n == 0) {
++        return NGX_OK;
++    }
++
++    for (i = 0; i < n && total < MAXNS; /* void */) {
++        if (buf[i] == '#' || buf[i] == ';') {
++            state = sw_skip;
++        }
++
++        switch (state) {
++
++        case sw_nameserver:
++
++            if ((size_t) n - i >= sizeof("nameserver") - 1
++                && ngx_memcmp(buf + i, "nameserver",
++                              sizeof("nameserver") - 1) == 0)
++            {
++                state = sw_spaces;
++                i += sizeof("nameserver") - 1;
++
++                continue;
++            }
++
++            break;
++
++        case sw_spaces:
++            if (buf[i] != '\t' && buf[i] != ' ') {
++                address = i;
++                state = sw_address;
++            }
++
++            break;
++
++        case sw_address:
++
++            if (buf[i] == CR || buf[i] == LF || i == n - 1) {
++                ngx_memzero(&u, sizeof(ngx_url_t));
++
++                u.url.data = buf + address;
++
++                if (i == n - 1 && buf[i] != CR && buf[i] != LF) {
++                    u.url.len = n - address;
++
++                } else {
++                    u.url.len = i - address;
++                }
++
++                u.default_port = 53;
++
++                /* IPv6? */
++                if (ngx_strlchr(u.url.data, u.url.data + u.url.len,
++                                ':') != NULL)
++                {
++                    if (u.url.len + 2 > sizeof(ipv6_buf)) {
++                        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                                           "IPv6 resolver address is too long:"
++                                           " \"%V\"", &u.url);
++
++                        return NGX_ERROR;
++                    }
++
++                    ipv6_buf[0] = '[';
++                    ngx_memcpy(ipv6_buf + 1, u.url.data, u.url.len);
++                    ipv6_buf[u.url.len + 1] = ']';
++
++                    u.url.data = ipv6_buf;
++                    u.url.len = u.url.len + 2;
++                }
++
++                if (ngx_parse_url(cf->pool, &u) != NGX_OK) {
++                    if (u.err) {
++                        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                                           "%s in resolver \"%V\"",
++                                           u.err, &u.url);
++                    }
++
++                    return NGX_ERROR;
++                }
++
++                rec = ngx_array_push_n(&r->connections, u.naddrs);
++                if (rec == NULL) {
++                    return NGX_ERROR;
++                }
++
++                ngx_memzero(rec, u.naddrs * sizeof(ngx_resolver_connection_t));
++
++                for (j = 0; j < u.naddrs; j++) {
++                    rec[j].sockaddr = u.addrs[j].sockaddr;
++                    rec[j].socklen = u.addrs[j].socklen;
++                    rec[j].server = u.addrs[j].name;
++                    rec[j].resolver = r;
++                }
++
++                total++;
++
++#if (NGX_DEBUG)
++                /*
++                 * logs with level below NGX_LOG_NOTICE will not be printed
++                 * in this early phase
++                 */
++                ngx_conf_log_error(NGX_LOG_NOTICE, cf, 0,
++                                   "parsed a resolver: \"%V\"", &u.url);
++#endif
++
++                state = sw_nameserver;
++            }
++
++            break;
++
++        case sw_skip:
++            if (buf[i] == CR || buf[i] == LF) {
++                state = sw_nameserver;
++            }
++
++            break;
++        }
++
++        i++;
++    }
++
++    return NGX_OK;
++}
++#endif
++
++
+ ngx_resolver_t *
+ ngx_resolver_create(ngx_conf_t *cf, ngx_str_t *names, ngx_uint_t n)
+ {
+@@ -227,7 +426,6 @@ ngx_resolver_create(ngx_conf_t *cf, ngx_str_t *names, ngx_uint_t n)
+             continue;
+         }
+
+-#if (NGX_HAVE_INET6)
+         if (ngx_strncmp(names[i].data, "ipv4=", 5) == 0) {
+
+             if (ngx_strcmp(&names[i].data[5], "on") == 0) {
+@@ -248,10 +446,19 @@ ngx_resolver_create(ngx_conf_t *cf, ngx_str_t *names, ngx_uint_t n)
+         if (ngx_strncmp(names[i].data, "ipv6=", 5) == 0) {
+
+             if (ngx_strcmp(&names[i].data[5], "on") == 0) {
++#if (NGX_HAVE_INET6)
+                 r->ipv6 = 1;
++#else
++                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                                   "no ipv6 support but \"%V\" in resolver",
++                                   &names[i]);
++                return NULL;
++#endif
+
+             } else if (ngx_strcmp(&names[i].data[5], "off") == 0) {
++#if (NGX_HAVE_INET6)
+                 r->ipv6 = 0;
++#endif
+
+             } else {
+                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+@@ -259,6 +466,38 @@ ngx_resolver_create(ngx_conf_t *cf, ngx_str_t *names, ngx_uint_t n)
+                 return NULL;
+             }
+
++            continue;
++        }
++
++#if !(NGX_WIN32)
++        if (ngx_strncmp(names[i].data, "local=", 6) == 0) {
++
++            if (ngx_strcmp(&names[i].data[6], "on") == 0) {
++                if (ngx_resolver_read_resolv_conf(cf, r,
++                                                  (u_char *)
++                                                  NGX_RESOLVER_FILE_NAME,
++                                                  sizeof(NGX_RESOLVER_FILE_NAME)
++                                                  - 1)
++                    != NGX_OK)
++                {
++                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                                       "unable to parse local resolver");
++                    return NULL;
++                }
++
++            } else if (ngx_strcmp(&names[i].data[6], "off") != 0) {
++                if (ngx_resolver_read_resolv_conf(cf, r,
++                                                  &names[i].data[6],
++                                                  names[i].len - 6)
++                    != NGX_OK)
++                {
++                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                                       "unable to parse local resolver");
++                    return NULL;
++                }
++
++            }
++
+             continue;
+         }
+ #endif
+@@ -4606,8 +4845,14 @@ ngx_tcp_connect(ngx_resolver_connection_t *rec)
+     ngx_event_t       *rev, *wev;
+     ngx_connection_t  *c;
+
++#if (NGX_HAVE_SOCKET_CLOEXEC)
++    s = ngx_socket(rec->sockaddr->sa_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
++
++#else
+     s = ngx_socket(rec->sockaddr->sa_family, SOCK_STREAM, 0);
+
++#endif
++
+     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, &rec->log, 0, "TCP socket %d", s);
+
+     if (s == (ngx_socket_t) -1) {
+@@ -4634,6 +4879,15 @@ ngx_tcp_connect(ngx_resolver_connection_t *rec)
+         goto failed;
+     }
+
++#if (NGX_HAVE_FD_CLOEXEC)
++    if (ngx_cloexec(s) == -1) {
++        ngx_log_error(NGX_LOG_ALERT, &rec->log, ngx_socket_errno,
++                      ngx_cloexec_n " failed");
++
++        goto failed;
++    }
++#endif
++
+     rev = c->read;
+     wev = c->write;
+
+diff --git a/src/core/ngx_thread_pool.c b/src/core/ngx_thread_pool.c
+index 7bf90e958..a890d01a5 100644
+--- a/src/core/ngx_thread_pool.c
++++ b/src/core/ngx_thread_pool.c
+@@ -587,7 +587,8 @@ ngx_thread_pool_init_worker(ngx_cycle_t *cycle)
+     ngx_thread_pool_conf_t   *tcf;
+
+     if (ngx_process != NGX_PROCESS_WORKER
+-        && ngx_process != NGX_PROCESS_SINGLE)
++        && ngx_process != NGX_PROCESS_SINGLE
++        && !ngx_is_privileged_agent)
+     {
+         return NGX_OK;
+     }
+diff --git a/src/event/ngx_event.c b/src/event/ngx_event.c
+index ef525d93b..d0b4a5591 100644
+--- a/src/event/ngx_event.c
++++ b/src/event/ngx_event.c
+@@ -197,6 +197,9 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
+     ngx_uint_t  flags;
+     ngx_msec_t  timer, delta;
+
++    ngx_queue_t     *q;
++    ngx_event_t     *ev;
++
+     if (ngx_timer_resolution) {
+         timer = NGX_TIMER_INFINITE;
+         flags = 0;
+@@ -216,6 +219,13 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
+ #endif
+     }
+
++    if (!ngx_queue_empty(&ngx_posted_delayed_events)) {
++        ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
++                       "posted delayed event queue not empty"
++                       " making poll timeout 0");
++        timer = 0;
++    }
++
+     if (ngx_use_accept_mutex) {
+         if (ngx_accept_disabled > 0) {
+             ngx_accept_disabled--;
+@@ -261,6 +271,35 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
+     ngx_event_expire_timers();
+
+     ngx_event_process_posted(cycle, &ngx_posted_events);
++
++    while (!ngx_queue_empty(&ngx_posted_delayed_events)) {
++        q = ngx_queue_head(&ngx_posted_delayed_events);
++
++        ev = ngx_queue_data(q, ngx_event_t, queue);
++        if (ev->delayed) {
++            /* start of newly inserted nodes */
++            for (/* void */;
++                 q != ngx_queue_sentinel(&ngx_posted_delayed_events);
++                 q = ngx_queue_next(q))
++            {
++                ev = ngx_queue_data(q, ngx_event_t, queue);
++                ev->delayed = 0;
++
++                ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
++                               "skipping delayed posted event %p,"
++                               " till next iteration", ev);
++            }
++
++            break;
++        }
++
++        ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
++                       "delayed posted event %p", ev);
++
++        ngx_delete_posted_event(ev);
++
++        ev->handler(ev);
++    }
+ }
+
+
+@@ -671,6 +710,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
+     ngx_queue_init(&ngx_posted_accept_events);
+     ngx_queue_init(&ngx_posted_next_events);
+     ngx_queue_init(&ngx_posted_events);
++    ngx_queue_init(&ngx_posted_delayed_events);
+
+     if (ngx_event_timer_init(cycle->log) == NGX_ERROR) {
+         return NGX_ERROR;
+@@ -806,6 +846,18 @@ ngx_event_process_init(ngx_cycle_t *cycle)
+
+ #if (NGX_HAVE_REUSEPORT)
+         if (ls[i].reuseport && ls[i].worker != ngx_worker) {
++            ngx_log_debug2(NGX_LOG_DEBUG_CORE, cycle->log, 0,
++                           "closing unused fd:%d listening on %V",
++                           ls[i].fd, &ls[i].addr_text);
++
++            if (ngx_close_socket(ls[i].fd) == -1) {
++                ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_socket_errno,
++                              ngx_close_socket_n " %V failed",
++                              &ls[i].addr_text);
++            }
++
++            ls[i].fd = (ngx_socket_t) -1;
++
+             continue;
+         }
+ #endif
+diff --git a/src/event/ngx_event.h b/src/event/ngx_event.h
+index deac04e7b..ad50a6f56 100644
+--- a/src/event/ngx_event.h
++++ b/src/event/ngx_event.h
+@@ -73,6 +73,9 @@ struct ngx_event_s {
+     /* to test on worker exit */
+     unsigned         channel:1;
+     unsigned         resolver:1;
++#if (HAVE_SOCKET_CLOEXEC_PATCH)
++    unsigned         skip_socket_leak_check:1;
++#endif
+
+     unsigned         cancelable:1;
+
+diff --git a/src/event/ngx_event_accept.c b/src/event/ngx_event_accept.c
+index 033d7e021..daaac04df 100644
+--- a/src/event/ngx_event_accept.c
++++ b/src/event/ngx_event_accept.c
+@@ -60,7 +60,9 @@ ngx_event_accept(ngx_event_t *ev)
+
+ #if (NGX_HAVE_ACCEPT4)
+         if (use_accept4) {
+-            s = accept4(lc->fd, &sa.sockaddr, &socklen, SOCK_NONBLOCK);
++            s = accept4(lc->fd, &sa.sockaddr, &socklen,
++                        SOCK_NONBLOCK | SOCK_CLOEXEC);
++
+         } else {
+             s = accept(lc->fd, &sa.sockaddr, &socklen);
+         }
+@@ -200,6 +202,16 @@ ngx_event_accept(ngx_event_t *ev)
+                     ngx_close_accepted_connection(c);
+                     return;
+                 }
++
++#if (NGX_HAVE_FD_CLOEXEC)
++                if (ngx_cloexec(s) == -1) {
++                    ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_socket_errno,
++                                  ngx_cloexec_n " failed");
++                    ngx_close_accepted_connection(c);
++                    return;
++                }
++#endif
++
+             }
+         }
+
+diff --git a/src/event/ngx_event_connect.c b/src/event/ngx_event_connect.c
+index 668084a7b..9b406b2a6 100644
+--- a/src/event/ngx_event_connect.c
++++ b/src/event/ngx_event_connect.c
+@@ -38,8 +38,15 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
+
+     type = (pc->type ? pc->type : SOCK_STREAM);
+
++#if (NGX_HAVE_SOCKET_CLOEXEC)
++    s = ngx_socket(pc->sockaddr->sa_family, type | SOCK_CLOEXEC, 0);
++
++#else
+     s = ngx_socket(pc->sockaddr->sa_family, type, 0);
+
++#endif
++
++
+     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, pc->log, 0, "%s socket %d",
+                    (type == SOCK_STREAM) ? "stream" : "dgram", s);
+
+@@ -92,6 +99,15 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
+         goto failed;
+     }
+
++#if (NGX_HAVE_FD_CLOEXEC)
++    if (ngx_cloexec(s) == -1) {
++        ngx_log_error(NGX_LOG_ALERT, pc->log, ngx_socket_errno,
++                      ngx_cloexec_n " failed");
++
++        goto failed;
++    }
++#endif
++
+     if (pc->local) {
+
+ #if (NGX_HAVE_TRANSPARENT_PROXY)
+diff --git a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
+index bb6e04313..065aab22a 100644
+--- a/src/event/ngx_event_openssl.c
++++ b/src/event/ngx_event_openssl.c
+@@ -2317,6 +2317,31 @@ ngx_ssl_handshake(ngx_connection_t *c)
+         return NGX_AGAIN;
+     }
+
++#if OPENSSL_VERSION_NUMBER >= 0x10002000L
++    if (sslerr == SSL_ERROR_WANT_X509_LOOKUP
++#   ifdef SSL_ERROR_PENDING_SESSION
++        || sslerr == SSL_ERROR_PENDING_SESSION
++#   endif
++#   ifdef SSL_ERROR_WANT_CLIENT_HELLO_CB
++        || sslerr == SSL_ERROR_WANT_CLIENT_HELLO_CB
++#   endif
++       )
++    {
++        c->read->handler = ngx_ssl_handshake_handler;
++        c->write->handler = ngx_ssl_handshake_handler;
++
++        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
++            return NGX_ERROR;
++        }
++
++        if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
++            return NGX_ERROR;
++        }
++
++        return NGX_AGAIN;
++    }
++#endif
++
+     err = (sslerr == SSL_ERROR_SYSCALL) ? ngx_errno : 0;
+
+     c->ssl->no_wait_shutdown = 1;
+@@ -2464,6 +2489,55 @@ ngx_ssl_try_early_data(ngx_connection_t *c)
+         return NGX_AGAIN;
+     }
+
++    if (sslerr == SSL_ERROR_WANT_X509_LOOKUP) {
++        c->read->handler = ngx_ssl_handshake_handler;
++        c->write->handler = ngx_ssl_handshake_handler;
++
++        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
++            return NGX_ERROR;
++        }
++
++        if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
++            return NGX_ERROR;
++        }
++
++        return NGX_AGAIN;
++    }
++
++#ifdef SSL_ERROR_PENDING_SESSION
++    if (sslerr == SSL_ERROR_PENDING_SESSION) {
++        c->read->handler = ngx_ssl_handshake_handler;
++        c->write->handler = ngx_ssl_handshake_handler;
++
++        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
++            return NGX_ERROR;
++        }
++
++        if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
++            return NGX_ERROR;
++        }
++
++        return NGX_AGAIN;
++    }
++#endif
++
++#ifdef SSL_ERROR_WANT_CLIENT_HELLO_CB
++    if (sslerr == SSL_ERROR_WANT_CLIENT_HELLO_CB) {
++        c->read->handler = ngx_ssl_handshake_handler;
++        c->write->handler = ngx_ssl_handshake_handler;
++
++        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
++            return NGX_ERROR;
++        }
++
++        if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
++            return NGX_ERROR;
++        }
++
++        return NGX_AGAIN;
++    }
++#endif
++
+     err = (sslerr == SSL_ERROR_SYSCALL) ? ngx_errno : 0;
+
+     c->ssl->no_wait_shutdown = 1;
+diff --git a/src/event/ngx_event_posted.c b/src/event/ngx_event_posted.c
+index fa575bd87..bb42e65f1 100644
+--- a/src/event/ngx_event_posted.c
++++ b/src/event/ngx_event_posted.c
+@@ -13,6 +13,7 @@
+ ngx_queue_t  ngx_posted_accept_events;
+ ngx_queue_t  ngx_posted_next_events;
+ ngx_queue_t  ngx_posted_events;
++ngx_queue_t  ngx_posted_delayed_events;
+
+
+ void
+diff --git a/src/event/ngx_event_posted.h b/src/event/ngx_event_posted.h
+index b1a85c442..be061dc9f 100644
+--- a/src/event/ngx_event_posted.h
++++ b/src/event/ngx_event_posted.h
+@@ -45,6 +45,9 @@ void ngx_event_move_posted_next(ngx_cycle_t *cycle);
+ extern ngx_queue_t  ngx_posted_accept_events;
+ extern ngx_queue_t  ngx_posted_next_events;
+ extern ngx_queue_t  ngx_posted_events;
++extern ngx_queue_t  ngx_posted_delayed_events;
++
++#define HAVE_POSTED_DELAYED_EVENTS_PATCH
+
+
+ #endif /* _NGX_EVENT_POSTED_H_INCLUDED_ */
+diff --git a/src/http/modules/ngx_http_log_module.c b/src/http/modules/ngx_http_log_module.c
+index 91589747e..8437b74f9 100644
+--- a/src/http/modules/ngx_http_log_module.c
++++ b/src/http/modules/ngx_http_log_module.c
+@@ -79,6 +79,8 @@ typedef struct {
+     time_t                      open_file_cache_valid;
+     ngx_uint_t                  open_file_cache_min_uses;
+
++    ngx_flag_t                  escape_non_ascii;
++
+     ngx_uint_t                  off;        /* unsigned  off:1 */
+ } ngx_http_log_loc_conf_t;
+
+@@ -136,7 +138,8 @@ static size_t ngx_http_log_variable_getlen(ngx_http_request_t *r,
+     uintptr_t data);
+ static u_char *ngx_http_log_variable(ngx_http_request_t *r, u_char *buf,
+     u_char *end, ngx_http_log_op_t *op);
+-static uintptr_t ngx_http_log_escape(u_char *dst, u_char *src, size_t size);
++static uintptr_t ngx_http_log_escape(ngx_http_log_loc_conf_t *lcf, u_char *dst,
++    u_char *src, size_t size);
+ static size_t ngx_http_log_json_variable_getlen(ngx_http_request_t *r,
+     uintptr_t data);
+ static u_char *ngx_http_log_json_variable(ngx_http_request_t *r, u_char *buf,
+@@ -189,6 +192,13 @@ static ngx_command_t  ngx_http_log_commands[] = {
+       0,
+       NULL },
+
++    { ngx_string("log_escape_non_ascii"),
++      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
++      ngx_conf_set_flag_slot,
++      NGX_HTTP_LOC_CONF_OFFSET,
++      offsetof(ngx_http_log_loc_conf_t, escape_non_ascii),
++      NULL },
++
+       ngx_null_command
+ };
+
+@@ -1017,6 +1027,7 @@ static size_t
+ ngx_http_log_variable_getlen(ngx_http_request_t *r, uintptr_t data)
+ {
+     uintptr_t                   len;
++    ngx_http_log_loc_conf_t    *lcf;
+     ngx_http_variable_value_t  *value;
+
+     value = ngx_http_get_indexed_variable(r, data);
+@@ -1025,7 +1036,9 @@ ngx_http_log_variable_getlen(ngx_http_request_t *r, uintptr_t data)
+         return 1;
+     }
+
+-    len = ngx_http_log_escape(NULL, value->data, value->len);
++    lcf = ngx_http_get_module_loc_conf(r, ngx_http_log_module);
++
++    len = ngx_http_log_escape(lcf, NULL, value->data, value->len);
+
+     value->escape = len ? 1 : 0;
+
+@@ -1037,7 +1050,7 @@ static u_char *
+ ngx_http_log_variable(ngx_http_request_t *r, u_char *buf, u_char *end,
+     ngx_http_log_op_t *op)
+ {
+-    uintptr_t                   len;
++    ngx_http_log_loc_conf_t    *lcf;
+     ngx_http_variable_value_t  *value;
+
+     value = ngx_http_get_indexed_variable(r, op->data);
+@@ -1059,24 +1072,18 @@ ngx_http_log_variable(ngx_http_request_t *r, u_char *buf, u_char *end,
+         return ngx_cpymem(buf, value->data, value->len);
+
+     } else {
+-        len = ngx_http_log_escape(NULL, value->data, value->len);
+-
+-        if (ngx_http_log_check_length(r, buf, end, value->len + len * 3)
+-            != NGX_OK)
+-        {
+-            return NULL;
+-        }
+-
+-        return (u_char *) ngx_http_log_escape(buf, value->data, value->len);
++        lcf = ngx_http_get_module_loc_conf(r, ngx_http_log_module);
++        return (u_char *) ngx_http_log_escape(lcf, buf, value->data, value->len);
+     }
+ }
+
+
+ static uintptr_t
+-ngx_http_log_escape(u_char *dst, u_char *src, size_t size)
++ngx_http_log_escape(ngx_http_log_loc_conf_t *lcf, u_char *dst, u_char *src,
++    size_t size)
+ {
+-    ngx_uint_t      n;
+-    static u_char   hex[] = "0123456789ABCDEF";
++    ngx_uint_t                   n;
++    static u_char                hex[] = "0123456789ABCDEF";
+
+     static uint32_t   escape[] = {
+         0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+@@ -1096,6 +1103,12 @@ ngx_http_log_escape(u_char *dst, u_char *src, size_t size)
+         0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+     };
+
++    if (lcf->escape_non_ascii) {
++        ngx_memset(&escape[4], 0xff, sizeof(uint32_t) * 4);
++
++    } else {
++        ngx_memzero(&escape[4], sizeof(uint32_t) * 4);
++    }
+
+     if (dst == NULL) {
+
+@@ -1284,6 +1297,7 @@ ngx_http_log_create_loc_conf(ngx_conf_t *cf)
+     }
+
+     conf->open_file_cache = NGX_CONF_UNSET_PTR;
++    conf->escape_non_ascii = NGX_CONF_UNSET;
+
+     return conf;
+ }
+@@ -1299,6 +1313,8 @@ ngx_http_log_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+     ngx_http_log_fmt_t        *fmt;
+     ngx_http_log_main_conf_t  *lmcf;
+
++    ngx_conf_merge_value(conf->escape_non_ascii, prev->escape_non_ascii, 1);
++
+     if (conf->open_file_cache == NGX_CONF_UNSET_PTR) {
+
+         conf->open_file_cache = prev->open_file_cache;
+diff --git a/src/http/modules/ngx_http_proxy_module.c b/src/http/modules/ngx_http_proxy_module.c
+index f3263cd5f..cb9167a69 100644
+--- a/src/http/modules/ngx_http_proxy_module.c
++++ b/src/http/modules/ngx_http_proxy_module.c
+@@ -797,13 +797,13 @@ static ngx_keyval_t  ngx_http_proxy_cache_headers[] = {
+ static ngx_http_variable_t  ngx_http_proxy_vars[] = {
+
+     { ngx_string("proxy_host"), NULL, ngx_http_proxy_host_variable, 0,
+-      NGX_HTTP_VAR_CHANGEABLE|NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_NOHASH, 0 },
++      NGX_HTTP_VAR_CHANGEABLE|NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+     { ngx_string("proxy_port"), NULL, ngx_http_proxy_port_variable, 0,
+-      NGX_HTTP_VAR_CHANGEABLE|NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_NOHASH, 0 },
++      NGX_HTTP_VAR_CHANGEABLE|NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+     { ngx_string("proxy_add_x_forwarded_for"), NULL,
+-      ngx_http_proxy_add_x_forwarded_for_variable, 0, NGX_HTTP_VAR_NOHASH, 0 },
++      ngx_http_proxy_add_x_forwarded_for_variable, 0, 0, 0 },
+
+ #if 0
+     { ngx_string("proxy_add_via"), NULL, NULL, 0, NGX_HTTP_VAR_NOHASH, 0 },
+diff --git a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
+index 385b84e1b..90f26011a 100644
+--- a/src/http/ngx_http_core_module.c
++++ b/src/http/ngx_http_core_module.c
+@@ -55,7 +55,6 @@ static char *ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd,
+     void *conf);
+ static char *ngx_http_core_server_name(ngx_conf_t *cf, ngx_command_t *cmd,
+     void *conf);
+-static char *ngx_http_core_root(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+ static char *ngx_http_core_limit_except(ngx_conf_t *cf, ngx_command_t *cmd,
+     void *conf);
+ static char *ngx_http_core_set_aio(ngx_conf_t *cf, ngx_command_t *cmd,
+@@ -64,6 +63,8 @@ static char *ngx_http_core_directio(ngx_conf_t *cf, ngx_command_t *cmd,
+     void *conf);
+ static char *ngx_http_core_error_page(ngx_conf_t *cf, ngx_command_t *cmd,
+     void *conf);
++static char *ngx_http_core_no_error_pages(ngx_conf_t *cf, ngx_command_t *cmd,
++    void *conf);
+ static char *ngx_http_core_open_file_cache(ngx_conf_t *cf, ngx_command_t *cmd,
+     void *conf);
+ static char *ngx_http_core_error_log(ngx_conf_t *cf, ngx_command_t *cmd,
+@@ -330,21 +331,6 @@ static ngx_command_t  ngx_http_core_commands[] = {
+       offsetof(ngx_http_core_loc_conf_t, default_type),
+       NULL },
+
+-    { ngx_string("root"),
+-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF
+-                        |NGX_CONF_TAKE1,
+-      ngx_http_core_root,
+-      NGX_HTTP_LOC_CONF_OFFSET,
+-      0,
+-      NULL },
+-
+-    { ngx_string("alias"),
+-      NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+-      ngx_http_core_root,
+-      NGX_HTTP_LOC_CONF_OFFSET,
+-      0,
+-      NULL },
+-
+     { ngx_string("limit_except"),
+       NGX_HTTP_LOC_CONF|NGX_CONF_BLOCK|NGX_CONF_1MORE,
+       ngx_http_core_limit_except,
+@@ -692,6 +678,14 @@ static ngx_command_t  ngx_http_core_commands[] = {
+       0,
+       NULL },
+
++    { ngx_string("no_error_pages"),
++      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF
++                        |NGX_CONF_NOARGS,
++      ngx_http_core_no_error_pages,
++      NGX_HTTP_LOC_CONF_OFFSET,
++      0,
++      NULL },
++
+     { ngx_string("post_action"),
+       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF
+                         |NGX_CONF_TAKE1,
+@@ -3633,7 +3627,6 @@ ngx_http_core_create_loc_conf(ngx_conf_t *cf)
+      *     clcf->types = NULL;
+      *     clcf->default_type = { 0, NULL };
+      *     clcf->error_log = NULL;
+-     *     clcf->error_pages = NULL;
+      *     clcf->client_body_path = NULL;
+      *     clcf->regex = NULL;
+      *     clcf->exact_match = 0;
+@@ -3643,6 +3636,7 @@ ngx_http_core_create_loc_conf(ngx_conf_t *cf)
+      *     clcf->keepalive_disable = 0;
+      */
+
++    clcf->error_pages = NGX_CONF_UNSET_PTR;
+     clcf->client_max_body_size = NGX_CONF_UNSET;
+     clcf->client_body_buffer_size = NGX_CONF_UNSET_SIZE;
+     clcf->client_body_timeout = NGX_CONF_UNSET_MSEC;
+@@ -3847,9 +3841,7 @@ ngx_http_core_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+         }
+     }
+
+-    if (conf->error_pages == NULL && prev->error_pages) {
+-        conf->error_pages = prev->error_pages;
+-    }
++    ngx_conf_merge_ptr_value(conf->error_pages, prev->error_pages, NULL);
+
+     ngx_conf_merge_str_value(conf->default_type,
+                               prev->default_type, "text/plain");
+@@ -4576,108 +4568,6 @@ ngx_http_core_server_name(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ }
+
+
+-static char *
+-ngx_http_core_root(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+-{
+-    ngx_http_core_loc_conf_t *clcf = conf;
+-
+-    ngx_str_t                  *value;
+-    ngx_int_t                   alias;
+-    ngx_uint_t                  n;
+-    ngx_http_script_compile_t   sc;
+-
+-    alias = (cmd->name.len == sizeof("alias") - 1) ? 1 : 0;
+-
+-    if (clcf->root.data) {
+-
+-        if ((clcf->alias != 0) == alias) {
+-            return "is duplicate";
+-        }
+-
+-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+-                           "\"%V\" directive is duplicate, "
+-                           "\"%s\" directive was specified earlier",
+-                           &cmd->name, clcf->alias ? "alias" : "root");
+-
+-        return NGX_CONF_ERROR;
+-    }
+-
+-    if (clcf->named && alias) {
+-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+-                           "the \"alias\" directive cannot be used "
+-                           "inside the named location");
+-
+-        return NGX_CONF_ERROR;
+-    }
+-
+-    value = cf->args->elts;
+-
+-    if (ngx_strstr(value[1].data, "$document_root")
+-        || ngx_strstr(value[1].data, "${document_root}"))
+-    {
+-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+-                           "the $document_root variable cannot be used "
+-                           "in the \"%V\" directive",
+-                           &cmd->name);
+-
+-        return NGX_CONF_ERROR;
+-    }
+-
+-    if (ngx_strstr(value[1].data, "$realpath_root")
+-        || ngx_strstr(value[1].data, "${realpath_root}"))
+-    {
+-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+-                           "the $realpath_root variable cannot be used "
+-                           "in the \"%V\" directive",
+-                           &cmd->name);
+-
+-        return NGX_CONF_ERROR;
+-    }
+-
+-    clcf->alias = alias ? clcf->name.len : 0;
+-    clcf->root = value[1];
+-
+-    if (!alias && clcf->root.len > 0
+-        && clcf->root.data[clcf->root.len - 1] == '/')
+-    {
+-        clcf->root.len--;
+-    }
+-
+-    if (clcf->root.data[0] != '$') {
+-        if (ngx_conf_full_name(cf->cycle, &clcf->root, 0) != NGX_OK) {
+-            return NGX_CONF_ERROR;
+-        }
+-    }
+-
+-    n = ngx_http_script_variables_count(&clcf->root);
+-
+-    ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
+-    sc.variables = n;
+-
+-#if (NGX_PCRE)
+-    if (alias && clcf->regex) {
+-        clcf->alias = NGX_MAX_SIZE_T_VALUE;
+-        n = 1;
+-    }
+-#endif
+-
+-    if (n) {
+-        sc.cf = cf;
+-        sc.source = &clcf->root;
+-        sc.lengths = &clcf->root_lengths;
+-        sc.values = &clcf->root_values;
+-        sc.complete_lengths = 1;
+-        sc.complete_values = 1;
+-
+-        if (ngx_http_script_compile(&sc) != NGX_OK) {
+-            return NGX_CONF_ERROR;
+-        }
+-    }
+-
+-    return NGX_CONF_OK;
+-}
+-
+-
+ static ngx_http_method_name_t  ngx_methods_names[] = {
+     { (u_char *) "GET",       (uint32_t) ~NGX_HTTP_GET },
+     { (u_char *) "HEAD",      (uint32_t) ~NGX_HTTP_HEAD },
+@@ -4935,6 +4825,10 @@ ngx_http_core_error_page(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+     ngx_http_compile_complex_value_t   ccv;
+
+     if (clcf->error_pages == NULL) {
++        return "conflicts with \"no_error_pages\"";
++    }
++
++    if (clcf->error_pages == NGX_CONF_UNSET_PTR) {
+         clcf->error_pages = ngx_array_create(cf->pool, 4,
+                                              sizeof(ngx_http_err_page_t));
+         if (clcf->error_pages == NULL) {
+@@ -5040,6 +4934,25 @@ ngx_http_core_error_page(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ }
+
+
++static char *
++ngx_http_core_no_error_pages(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
++{
++    ngx_http_core_loc_conf_t *clcf = conf;
++
++    if (clcf->error_pages == NULL) {
++        return "is duplicate";
++    }
++
++    if (clcf->error_pages != NGX_CONF_UNSET_PTR) {
++        return "conflicts with \"error_page\"";
++    }
++
++    clcf->error_pages = NULL;
++
++    return NGX_CONF_OK;
++}
++
++
+ static char *
+ ngx_http_core_open_file_cache(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ {
+diff --git a/src/http/ngx_http_request.c b/src/http/ngx_http_request.c
+index c8dff236f..625db1212 100644
+--- a/src/http/ngx_http_request.c
++++ b/src/http/ngx_http_request.c
+@@ -956,6 +956,31 @@ ngx_http_ssl_servername(ngx_ssl_conn_t *ssl_conn, int *ad, void *arg)
+         goto done;
+     }
+
++    sscf = ngx_http_get_module_srv_conf(cscf->ctx, ngx_http_ssl_module);
++
++#if (defined TLS1_3_VERSION                                                   \
++     && !defined LIBRESSL_VERSION_NUMBER && !defined OPENSSL_IS_BORINGSSL)
++
++    /*
++     * SSL_SESSION_get0_hostname() is only available in OpenSSL 1.1.1+,
++     * but servername being negotiated in every TLSv1.3 handshake
++     * is only returned in OpenSSL 1.1.1+ as well
++     */
++
++    if (sscf->verify) {
++        const char  *hostname;
++
++        hostname = SSL_SESSION_get0_hostname(SSL_get0_session(ssl_conn));
++
++        if (hostname != NULL && ngx_strcmp(hostname, servername) != 0) {
++            c->ssl->handshake_rejected = 1;
++            *ad = SSL_AD_ACCESS_DENIED;
++            return SSL_TLSEXT_ERR_ALERT_FATAL;
++        }
++    }
++
++#endif
++
+     hc->ssl_servername = ngx_palloc(c->pool, sizeof(ngx_str_t));
+     if (hc->ssl_servername == NULL) {
+         goto error;
+diff --git a/src/http/ngx_http_upstream.c b/src/http/ngx_http_upstream.c
+index 449508ac7..85a47ab88 100644
+--- a/src/http/ngx_http_upstream.c
++++ b/src/http/ngx_http_upstream.c
+@@ -537,12 +537,19 @@ void
+ ngx_http_upstream_init(ngx_http_request_t *r)
+ {
+     ngx_connection_t     *c;
++    ngx_http_upstream_t  *u;
+
+     c = r->connection;
+
+     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, c->log, 0,
+                    "http init upstream, client timer: %d", c->read->timer_set);
+
++    u = r->upstream;
++
++    u->connect_timeout = u->conf->connect_timeout;
++    u->send_timeout = u->conf->send_timeout;
++    u->read_timeout = u->conf->read_timeout;
++
+ #if (NGX_HTTP_V2)
+     if (r->stream) {
+         ngx_http_upstream_init_request(r);
+@@ -1594,6 +1601,11 @@ ngx_http_upstream_connect(ngx_http_request_t *r, ngx_http_upstream_t *u)
+         return;
+     }
+
++    if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
++        ngx_http_upstream_finalize_request(r, u, rc);
++        return;
++    }
++
+     u->state->peer = u->peer.name;
+
+ #if (NGX_HTTP_UPSTREAM_ZONE)
+@@ -1714,7 +1726,7 @@ ngx_http_upstream_connect(ngx_http_request_t *r, ngx_http_upstream_t *u)
+     u->response_received = 0;
+
+     if (rc == NGX_AGAIN) {
+-        ngx_add_timer(c->write, u->conf->connect_timeout);
++        ngx_add_timer(c->write, u->connect_timeout);
+         return;
+     }
+
+@@ -1818,7 +1830,7 @@ ngx_http_upstream_ssl_init_connection(ngx_http_request_t *r,
+     if (rc == NGX_AGAIN) {
+
+         if (!c->write->timer_set) {
+-            ngx_add_timer(c->write, u->conf->connect_timeout);
++            ngx_add_timer(c->write, u->connect_timeout);
+         }
+
+         c->ssl->handler = ngx_http_upstream_ssl_handshake_handler;
+@@ -2183,7 +2195,7 @@ ngx_http_upstream_send_request(ngx_http_request_t *r, ngx_http_upstream_t *u,
+
+     if (rc == NGX_AGAIN) {
+         if (!c->write->ready || u->request_body_blocked) {
+-            ngx_add_timer(c->write, u->conf->send_timeout);
++            ngx_add_timer(c->write, u->send_timeout);
+
+         } else if (c->write->timer_set) {
+             ngx_del_timer(c->write);
+@@ -2249,7 +2261,7 @@ ngx_http_upstream_send_request(ngx_http_request_t *r, ngx_http_upstream_t *u,
+             return;
+         }
+
+-        ngx_add_timer(c->read, u->conf->read_timeout);
++        ngx_add_timer(c->read, u->read_timeout);
+
+         if (c->read->ready) {
+             ngx_http_upstream_process_header(r, u);
+@@ -2404,7 +2416,7 @@ ngx_http_upstream_send_request_handler(ngx_http_request_t *r,
+
+ #endif
+
+-    if (u->header_sent && !u->conf->preserve_output) {
++    if (u->request_body_sent && !u->conf->preserve_output) {
+         u->write_event_handler = ngx_http_upstream_dummy_handler;
+
+         (void) ngx_handle_write_event(c->write, 0);
+@@ -3576,7 +3588,7 @@ ngx_http_upstream_send_response(ngx_http_request_t *r, ngx_http_upstream_t *u)
+         p->cyclic_temp_file = 0;
+     }
+
+-    p->read_timeout = u->conf->read_timeout;
++    p->read_timeout = u->read_timeout;
+     p->send_timeout = clcf->send_timeout;
+     p->send_lowat = clcf->send_lowat;
+
+@@ -3822,7 +3834,7 @@ ngx_http_upstream_process_upgraded(ngx_http_request_t *r,
+     }
+
+     if (upstream->write->active && !upstream->write->ready) {
+-        ngx_add_timer(upstream->write, u->conf->send_timeout);
++        ngx_add_timer(upstream->write, u->send_timeout);
+
+     } else if (upstream->write->timer_set) {
+         ngx_del_timer(upstream->write);
+@@ -3841,7 +3853,7 @@ ngx_http_upstream_process_upgraded(ngx_http_request_t *r,
+     }
+
+     if (upstream->read->active && !upstream->read->ready) {
+-        ngx_add_timer(upstream->read, u->conf->read_timeout);
++        ngx_add_timer(upstream->read, u->read_timeout);
+
+     } else if (upstream->read->timer_set) {
+         ngx_del_timer(upstream->read);
+@@ -4050,7 +4062,7 @@ ngx_http_upstream_process_non_buffered_request(ngx_http_request_t *r,
+     }
+
+     if (upstream->read->active && !upstream->read->ready) {
+-        ngx_add_timer(upstream->read, u->conf->read_timeout);
++        ngx_add_timer(upstream->read, u->read_timeout);
+
+     } else if (upstream->read->timer_set) {
+         ngx_del_timer(upstream->read);
+diff --git a/src/http/ngx_http_upstream.h b/src/http/ngx_http_upstream.h
+index 0d48db788..821cfe8d9 100644
+--- a/src/http/ngx_http_upstream.h
++++ b/src/http/ngx_http_upstream.h
+@@ -352,6 +352,11 @@ struct ngx_http_upstream_s {
+     ngx_array_t                     *caches;
+ #endif
+
++#define HAVE_NGX_UPSTREAM_TIMEOUT_FIELDS  1
++    ngx_msec_t                       connect_timeout;
++    ngx_msec_t                       send_timeout;
++    ngx_msec_t                       read_timeout;
++
+     ngx_http_upstream_headers_in_t   headers_in;
+
+     ngx_http_upstream_resolved_t    *resolved;
+@@ -461,4 +466,9 @@ extern ngx_conf_bitmask_t  ngx_http_upstream_cache_method_mask[];
+ extern ngx_conf_bitmask_t  ngx_http_upstream_ignore_headers_masks[];
+
+
++#ifndef HAVE_BALANCER_STATUS_CODE_PATCH
++#define HAVE_BALANCER_STATUS_CODE_PATCH
++#endif
++
++
+ #endif /* _NGX_HTTP_UPSTREAM_H_INCLUDED_ */
+diff --git a/src/os/unix/ngx_daemon.c b/src/os/unix/ngx_daemon.c
+index 385c49b6c..2943dd891 100644
+--- a/src/os/unix/ngx_daemon.c
++++ b/src/os/unix/ngx_daemon.c
+@@ -23,6 +23,8 @@ ngx_daemon(ngx_log_t *log)
+         break;
+
+     default:
++        /* just to make it ASAN or Valgrind clean */
++        ngx_destroy_pool(ngx_cycle->pool);
+         exit(0);
+     }
+
+diff --git a/src/os/unix/ngx_process.c b/src/os/unix/ngx_process.c
+index 15680237a..874c9bf09 100644
+--- a/src/os/unix/ngx_process.c
++++ b/src/os/unix/ngx_process.c
+@@ -34,6 +34,7 @@ ngx_int_t        ngx_process_slot;
+ ngx_socket_t     ngx_channel;
+ ngx_int_t        ngx_last_process;
+ ngx_process_t    ngx_processes[NGX_MAX_PROCESSES];
++ngx_proc_exit_pt ngx_proc_exit_top_handler;
+
+
+ ngx_signal_t  signals[] = {
+@@ -83,6 +84,13 @@ ngx_signal_t  signals[] = {
+ };
+
+
++void
++ngx_proc_exit_def_handler(ngx_pid_t pid)
++{
++    /* do nothing */
++}
++
++
+ ngx_pid_t
+ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
+     char *name, ngx_int_t respawn)
+@@ -362,8 +370,15 @@ ngx_signal_handler(int signo, siginfo_t *siginfo, void *ucontext)
+             break;
+
+         case ngx_signal_value(NGX_RECONFIGURE_SIGNAL):
+-            ngx_reconfigure = 1;
+-            action = ", reconfiguring";
++            if (ngx_process == NGX_PROCESS_SINGLE) {
++                ngx_terminate = 1;
++                action = ", exiting";
++
++            } else {
++                ngx_reconfigure = 1;
++                action = ", reconfiguring";
++            }
++
+             break;
+
+         case ngx_signal_value(NGX_REOPEN_SIGNAL):
+@@ -557,6 +572,7 @@ ngx_process_get_status(void)
+         }
+
+         ngx_unlock_mutexes(pid);
++        ngx_proc_exit_top_handler(pid);
+     }
+ }
+
+diff --git a/src/os/unix/ngx_process.h b/src/os/unix/ngx_process.h
+index 3986639b4..0b55d983f 100644
+--- a/src/os/unix/ngx_process.h
++++ b/src/os/unix/ngx_process.h
+@@ -18,6 +18,8 @@ typedef pid_t       ngx_pid_t;
+ #define NGX_INVALID_PID  -1
+
+ typedef void (*ngx_spawn_proc_pt) (ngx_cycle_t *cycle, void *data);
++#define NGX_HAVE_PROC_EXIT 1
++typedef void (*ngx_proc_exit_pt)(ngx_pid_t pid);
+
+ typedef struct {
+     ngx_pid_t           pid;
+@@ -66,6 +68,7 @@ ngx_pid_t ngx_spawn_process(ngx_cycle_t *cycle,
+ ngx_pid_t ngx_execute(ngx_cycle_t *cycle, ngx_exec_ctx_t *ctx);
+ ngx_int_t ngx_init_signals(ngx_log_t *log);
+ void ngx_debug_point(void);
++void ngx_proc_exit_def_handler(ngx_pid_t pid);
+
+
+ #if (NGX_HAVE_SCHED_YIELD)
+@@ -85,6 +88,7 @@ extern ngx_socket_t   ngx_channel;
+ extern ngx_int_t      ngx_process_slot;
+ extern ngx_int_t      ngx_last_process;
+ extern ngx_process_t  ngx_processes[NGX_MAX_PROCESSES];
++extern ngx_proc_exit_pt  ngx_proc_exit_top_handler;
+
+
+ #endif /* _NGX_PROCESS_H_INCLUDED_ */
+diff --git a/src/os/unix/ngx_process_cycle.c b/src/os/unix/ngx_process_cycle.c
+index 33c25487b..146a917a6 100644
+--- a/src/os/unix/ngx_process_cycle.c
++++ b/src/os/unix/ngx_process_cycle.c
+@@ -15,6 +15,8 @@ static void ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n,
+     ngx_int_t type);
+ static void ngx_start_cache_manager_processes(ngx_cycle_t *cycle,
+     ngx_uint_t respawn);
++static void ngx_start_privileged_agent_processes(ngx_cycle_t *cycle,
++    ngx_uint_t respawn);
+ static void ngx_pass_open_channel(ngx_cycle_t *cycle);
+ static void ngx_signal_worker_processes(ngx_cycle_t *cycle, int signo);
+ static ngx_uint_t ngx_reap_children(ngx_cycle_t *cycle);
+@@ -24,6 +26,7 @@ static void ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker);
+ static void ngx_worker_process_exit(ngx_cycle_t *cycle);
+ static void ngx_channel_handler(ngx_event_t *ev);
+ static void ngx_cache_manager_process_cycle(ngx_cycle_t *cycle, void *data);
++static void ngx_privileged_agent_process_cycle(ngx_cycle_t *cycle, void *data);
+ static void ngx_cache_manager_process_handler(ngx_event_t *ev);
+ static void ngx_cache_loader_process_handler(ngx_event_t *ev);
+
+@@ -52,6 +55,8 @@ sig_atomic_t  ngx_noaccept;
+ ngx_uint_t    ngx_noaccepting;
+ ngx_uint_t    ngx_restart;
+
++ngx_uint_t    ngx_is_privileged_agent;
++
+
+ static u_char  master_process[] = "master process";
+
+@@ -130,6 +135,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
+     ngx_start_worker_processes(cycle, ccf->worker_processes,
+                                NGX_PROCESS_RESPAWN);
+     ngx_start_cache_manager_processes(cycle, 0);
++    ngx_start_privileged_agent_processes(cycle, 0);
+
+     ngx_new_binary = 0;
+     delay = 0;
+@@ -215,6 +221,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
+                 ngx_start_worker_processes(cycle, ccf->worker_processes,
+                                            NGX_PROCESS_RESPAWN);
+                 ngx_start_cache_manager_processes(cycle, 0);
++                ngx_start_privileged_agent_processes(cycle, 0);
+                 ngx_noaccepting = 0;
+
+                 continue;
+@@ -234,6 +241,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
+             ngx_start_worker_processes(cycle, ccf->worker_processes,
+                                        NGX_PROCESS_JUST_RESPAWN);
+             ngx_start_cache_manager_processes(cycle, 1);
++            ngx_start_privileged_agent_processes(cycle, 1);
+
+             /* allow new processes to start */
+             ngx_msleep(100);
+@@ -248,6 +256,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
+             ngx_start_worker_processes(cycle, ccf->worker_processes,
+                                        NGX_PROCESS_RESPAWN);
+             ngx_start_cache_manager_processes(cycle, 0);
++            ngx_start_privileged_agent_processes(cycle, 0);
+             live = 1;
+         }
+
+@@ -295,11 +304,26 @@ ngx_single_process_cycle(ngx_cycle_t *cycle)
+     }
+
+     for ( ;; ) {
++        if (ngx_exiting) {
++            if (ngx_event_no_timers_left() == NGX_OK) {
++                ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
++
++                for (i = 0; cycle->modules[i]; i++) {
++                    if (cycle->modules[i]->exit_process) {
++                        cycle->modules[i]->exit_process(cycle);
++                    }
++                }
++
++                ngx_master_process_exit(cycle);
++            }
++        }
++
+         ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "worker cycle");
+
+         ngx_process_events_and_timers(cycle);
+
+-        if (ngx_terminate || ngx_quit) {
++        if (ngx_terminate) {
++            ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
+
+             for (i = 0; cycle->modules[i]; i++) {
+                 if (cycle->modules[i]->exit_process) {
+@@ -310,6 +334,20 @@ ngx_single_process_cycle(ngx_cycle_t *cycle)
+             ngx_master_process_exit(cycle);
+         }
+
++        if (ngx_quit) {
++            ngx_quit = 0;
++            ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
++                          "gracefully shutting down");
++            ngx_setproctitle("process is shutting down");
++
++            if (!ngx_exiting) {
++                ngx_exiting = 1;
++                ngx_set_shutdown_timer(cycle);
++                ngx_close_listening_sockets(cycle);
++                ngx_close_idle_connections(cycle);
++            }
++        }
++
+         if (ngx_reconfigure) {
+             ngx_reconfigure = 0;
+             ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "reconfiguring");
+@@ -392,6 +430,35 @@ ngx_start_cache_manager_processes(ngx_cycle_t *cycle, ngx_uint_t respawn)
+ }
+
+
++static void
++ngx_start_privileged_agent_processes(ngx_cycle_t *cycle, ngx_uint_t respawn)
++{
++    ngx_core_conf_t       *ccf;
++
++    ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx,
++                                           ngx_core_module);
++
++    if (!ccf->privileged_agent) {
++        return;
++    }
++
++    /* 0 is an illegal value and may result in a core dump later */
++    if (ccf->privileged_agent_connections == 0) {
++        ngx_log_error(NGX_LOG_ALERT, cycle->log, 0,
++                      "%ui worker_connection is not enough, "
++                      "privileged agent process cannot be spawned",
++                      ccf->privileged_agent_connections);
++        return;
++    }
++
++    ngx_spawn_process(cycle, ngx_privileged_agent_process_cycle,
++                      "privileged agent process", "privileged agent process",
++                      respawn ? NGX_PROCESS_JUST_RESPAWN : NGX_PROCESS_RESPAWN);
++
++    ngx_pass_open_channel(cycle);
++}
++
++
+ static void
+ ngx_pass_open_channel(ngx_cycle_t *cycle)
+ {
+@@ -689,6 +756,11 @@ ngx_master_process_exit(ngx_cycle_t *cycle)
+     ngx_exit_cycle.files_n = ngx_cycle->files_n;
+     ngx_cycle = &ngx_exit_cycle;
+
++    if (saved_init_cycle_pool != NULL && saved_init_cycle_pool != cycle->pool) {
++        ngx_destroy_pool(saved_init_cycle_pool);
++        saved_init_cycle_pool = NULL;
++    }
++
+     ngx_destroy_pool(cycle->pool);
+
+     exit(0);
+@@ -796,7 +868,10 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
+         }
+     }
+
+-    if (geteuid() == 0) {
++    /*
++     * privileged agent process has the same permission as master process
++     */
++    if (!ngx_is_privileged_agent && geteuid() == 0) {
+         if (setgid(ccf->group) == -1) {
+             ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
+                           "setgid(%d) failed", ccf->group);
+@@ -953,6 +1028,9 @@ ngx_worker_process_exit(ngx_cycle_t *cycle)
+         for (i = 0; i < cycle->connection_n; i++) {
+             if (c[i].fd != -1
+                 && c[i].read
++#if (HAVE_SOCKET_CLOEXEC_PATCH)
++                && !c[i].read->skip_socket_leak_check
++#endif
+                 && !c[i].read->accept
+                 && !c[i].read->channel
+                 && !c[i].read->resolver)
+@@ -1128,7 +1206,49 @@ ngx_cache_manager_process_cycle(ngx_cycle_t *cycle, void *data)
+
+         if (ngx_terminate || ngx_quit) {
+             ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
+-            exit(0);
++            ngx_worker_process_exit(cycle);
++        }
++
++        if (ngx_reopen) {
++            ngx_reopen = 0;
++            ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "reopening logs");
++            ngx_reopen_files(cycle, -1);
++        }
++
++        ngx_process_events_and_timers(cycle);
++    }
++}
++
++
++static void
++ngx_privileged_agent_process_cycle(ngx_cycle_t *cycle, void *data)
++{
++    char   *name = data;
++    ngx_core_conf_t *ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
++
++    /*
++     * Set correct process type since closing listening Unix domain socket
++     * in a master process also removes the Unix domain socket file.
++     */
++    ngx_process = NGX_PROCESS_HELPER;
++    ngx_is_privileged_agent = 1;
++
++    ngx_close_listening_sockets(cycle);
++
++    /* Set a moderate number of connections for a helper process. */
++    cycle->connection_n = ccf->privileged_agent_connections;
++
++    ngx_worker_process_init(cycle, -1);
++
++    ngx_use_accept_mutex = 0;
++
++    ngx_setproctitle(name);
++
++    for ( ;; ) {
++
++        if (ngx_terminate || ngx_quit) {
++            ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
++            ngx_worker_process_exit(cycle);
+         }
+
+         if (ngx_reopen) {
+diff --git a/src/os/unix/ngx_process_cycle.h b/src/os/unix/ngx_process_cycle.h
+index 69495d5f4..51493962b 100644
+--- a/src/os/unix/ngx_process_cycle.h
++++ b/src/os/unix/ngx_process_cycle.h
+@@ -45,6 +45,7 @@ extern ngx_pid_t       ngx_new_binary;
+ extern ngx_uint_t      ngx_inherited;
+ extern ngx_uint_t      ngx_daemonized;
+ extern ngx_uint_t      ngx_exiting;
++extern ngx_uint_t      ngx_is_privileged_agent;
+
+ extern sig_atomic_t    ngx_reap;
+ extern sig_atomic_t    ngx_sigio;
+diff --git a/src/os/unix/ngx_socket.h b/src/os/unix/ngx_socket.h
+index 4480adca2..670c6debb 100644
+--- a/src/os/unix/ngx_socket.h
++++ b/src/os/unix/ngx_socket.h
+@@ -47,6 +47,17 @@ int ngx_blocking(ngx_socket_t s);
+
+ #endif
+
++#if (NGX_HAVE_FD_CLOEXEC)
++
++#define ngx_cloexec(s)      fcntl(s, F_SETFD, FD_CLOEXEC)
++#define ngx_cloexec_n       "fcntl(FD_CLOEXEC)"
++
++/* at least FD_CLOEXEC is required to ensure connection fd is closed
++ * after execve */
++#define HAVE_SOCKET_CLOEXEC_PATCH  1
++
++#endif
++
+ int ngx_tcp_nopush(ngx_socket_t s);
+ int ngx_tcp_push(ngx_socket_t s);
+
+diff --git a/src/os/win32/ngx_event_log.c b/src/os/win32/ngx_event_log.c
+index e11ed1e82..dce8eddd9 100644
+--- a/src/os/win32/ngx_event_log.c
++++ b/src/os/win32/ngx_event_log.c
+@@ -8,7 +8,9 @@
+ #include <ngx_core.h>
+
+
+-#define NGX_MAX_ERROR_STR   2048
++#ifndef NGX_MAX_ERROR_STR
++#define NGX_MAX_ERROR_STR   4096
++#endif
+
+
+ void ngx_cdecl
+diff --git a/src/stream/ngx_stream.h b/src/stream/ngx_stream.h
+index 9bc689e99..40db2a67c 100644
+--- a/src/stream/ngx_stream.h
++++ b/src/stream/ngx_stream.h
+@@ -27,6 +27,7 @@ typedef struct ngx_stream_session_s  ngx_stream_session_t;
+
+
+ #define NGX_STREAM_OK                        200
++#define NGX_STREAM_SPECIAL_RESPONSE          300
+ #define NGX_STREAM_BAD_REQUEST               400
+ #define NGX_STREAM_FORBIDDEN                 403
+ #define NGX_STREAM_INTERNAL_SERVER_ERROR     500
+@@ -312,6 +313,15 @@ typedef struct {
+ } ngx_stream_module_t;
+
+
++typedef struct {
++    ngx_msec_t                       connect_timeout;
++    ngx_msec_t                       timeout;
++} ngx_stream_proxy_ctx_t;
++
++
++#define NGX_STREAM_HAVE_PROXY_TIMEOUT_FIELDS_PATCH 1
++
++
+ #define NGX_STREAM_MODULE       0x4d525453     /* "STRM" */
+
+ #define NGX_STREAM_MAIN_CONF    0x02000000
+@@ -372,6 +382,7 @@ void ngx_stream_finalize_session(ngx_stream_session_t *s, ngx_uint_t rc);
+ extern ngx_module_t  ngx_stream_module;
+ extern ngx_uint_t    ngx_stream_max_module;
+ extern ngx_module_t  ngx_stream_core_module;
++extern ngx_module_t  ngx_stream_proxy_module;
+
+
+ typedef ngx_int_t (*ngx_stream_filter_pt)(ngx_stream_session_t *s,
+@@ -381,4 +392,7 @@ typedef ngx_int_t (*ngx_stream_filter_pt)(ngx_stream_session_t *s,
+ extern ngx_stream_filter_pt  ngx_stream_top_filter;
+
+
++#define HAS_NGX_STREAM_PROXY_GET_NEXT_UPSTREAM_TRIES_PATCH 1
++
++
+ #endif /* _NGX_STREAM_H_INCLUDED_ */
+diff --git a/src/stream/ngx_stream_proxy_module.c b/src/stream/ngx_stream_proxy_module.c
+index 300bdf681..779c75cf0 100644
+--- a/src/stream/ngx_stream_proxy_module.c
++++ b/src/stream/ngx_stream_proxy_module.c
+@@ -30,7 +30,7 @@ typedef struct {
+     ngx_uint_t                       responses;
+     ngx_uint_t                       next_upstream_tries;
+     ngx_flag_t                       next_upstream;
+-    ngx_flag_t                       proxy_protocol;
++    ngx_uint_t                       proxy_protocol;
+     ngx_flag_t                       half_close;
+     ngx_stream_upstream_local_t     *local;
+     ngx_flag_t                       socket_keepalive;
+@@ -130,6 +130,14 @@ static ngx_conf_post_t  ngx_stream_proxy_ssl_conf_command_post =
+ #endif
+
+
++static ngx_conf_enum_t  ngx_stream_proxy_protocol[] = {
++    { ngx_string("off"), 0 },
++    { ngx_string("on"), 1 },
++    { ngx_string("v2"), 2 },
++    { ngx_null_string, 0 }
++};
++
++
+ static ngx_conf_deprecated_t  ngx_conf_deprecated_proxy_downstream_buffer = {
+     ngx_conf_deprecated, "proxy_downstream_buffer", "proxy_buffer_size"
+ };
+@@ -248,10 +256,10 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
+
+     { ngx_string("proxy_protocol"),
+       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
+-      ngx_conf_set_flag_slot,
++      ngx_conf_set_enum_slot,
+       NGX_STREAM_SRV_CONF_OFFSET,
+       offsetof(ngx_stream_proxy_srv_conf_t, proxy_protocol),
+-      NULL },
++      &ngx_stream_proxy_protocol },
+
+     { ngx_string("proxy_half_close"),
+       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
+@@ -414,6 +422,7 @@ ngx_stream_proxy_handler(ngx_stream_session_t *s)
+     ngx_stream_proxy_srv_conf_t      *pscf;
+     ngx_stream_upstream_srv_conf_t   *uscf, **uscfp;
+     ngx_stream_upstream_main_conf_t  *umcf;
++    ngx_stream_proxy_ctx_t           *pctx;
+
+     c = s->connection;
+
+@@ -422,6 +431,17 @@ ngx_stream_proxy_handler(ngx_stream_session_t *s)
+     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0,
+                    "proxy connection handler");
+
++    pctx = ngx_palloc(c->pool, sizeof(ngx_stream_proxy_ctx_t));
++    if (pctx == NULL) {
++        ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
++        return;
++    }
++
++    pctx->connect_timeout = pscf->connect_timeout;
++    pctx->timeout = pscf->timeout;
++
++    ngx_stream_set_ctx(s, pctx, ngx_stream_proxy_module);
++
+     u = ngx_pcalloc(c->pool, sizeof(ngx_stream_upstream_t));
+     if (u == NULL) {
+         ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
+@@ -715,6 +735,7 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
+     ngx_connection_t             *c, *pc;
+     ngx_stream_upstream_t        *u;
+     ngx_stream_proxy_srv_conf_t  *pscf;
++    ngx_stream_proxy_ctx_t       *ctx;
+
+     c = s->connection;
+
+@@ -722,6 +743,8 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
+
+     pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
+
++    ctx = ngx_stream_get_module_ctx(s, ngx_stream_proxy_module);
++
+     u = s->upstream;
+
+     u->connected = 0;
+@@ -754,6 +777,11 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
+         return;
+     }
+
++    if (rc >= NGX_STREAM_SPECIAL_RESPONSE) {
++        ngx_stream_proxy_finalize(s, rc);
++        return;
++    }
++
+     u->state->peer = u->peer.name;
+
+ #if (NGX_STREAM_UPSTREAM_ZONE)
+@@ -804,7 +832,7 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
+     pc->read->handler = ngx_stream_proxy_connect_handler;
+     pc->write->handler = ngx_stream_proxy_connect_handler;
+
+-    ngx_add_timer(pc->write, pscf->connect_timeout);
++    ngx_add_timer(pc->write, ctx->connect_timeout);
+ }
+
+
+@@ -927,7 +955,7 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
+             return;
+         }
+
+-        p = ngx_pnalloc(c->pool, NGX_PROXY_PROTOCOL_V1_MAX_HEADER);
++        p = ngx_pnalloc(c->pool, NGX_PROXY_PROTOCOL_MAX_HEADER);
+         if (p == NULL) {
+             ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
+             return;
+@@ -935,8 +963,8 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
+
+         cl->buf->pos = p;
+
+-        p = ngx_proxy_protocol_write(c, p,
+-                                     p + NGX_PROXY_PROTOCOL_V1_MAX_HEADER);
++        p = ngx_proxy_protocol_write(c, p, p + NGX_PROXY_PROTOCOL_MAX_HEADER,
++                                     u->proxy_protocol);
+         if (p == NULL) {
+             ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
+             return;
+@@ -975,27 +1003,29 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
+ static ngx_int_t
+ ngx_stream_proxy_send_proxy_protocol(ngx_stream_session_t *s)
+ {
+-    u_char                       *p;
+-    ssize_t                       n, size;
+-    ngx_connection_t             *c, *pc;
+-    ngx_stream_upstream_t        *u;
+-    ngx_stream_proxy_srv_conf_t  *pscf;
+-    u_char                        buf[NGX_PROXY_PROTOCOL_V1_MAX_HEADER];
++    u_char                  *p;
++    u_char                   buf[NGX_PROXY_PROTOCOL_MAX_HEADER];
++    ssize_t                  n, size;
++    ngx_connection_t        *c, *pc;
++    ngx_stream_upstream_t   *u;
++    ngx_stream_proxy_ctx_t  *ctx;
++
++    ctx = ngx_stream_get_module_ctx(s, ngx_stream_proxy_module);
+
+     c = s->connection;
+
+     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0,
+                    "stream proxy send PROXY protocol header");
+
+-    p = ngx_proxy_protocol_write(c, buf,
+-                                 buf + NGX_PROXY_PROTOCOL_V1_MAX_HEADER);
++    u = s->upstream;
++
++    p = ngx_proxy_protocol_write(c, buf, buf + NGX_PROXY_PROTOCOL_MAX_HEADER,
++                                 u->proxy_protocol);
+     if (p == NULL) {
+         ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
+         return NGX_ERROR;
+     }
+
+-    u = s->upstream;
+-
+     pc = u->peer.connection;
+
+     size = p - buf;
+@@ -1008,9 +1038,7 @@ ngx_stream_proxy_send_proxy_protocol(ngx_stream_session_t *s)
+             return NGX_ERROR;
+         }
+
+-        pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
+-
+-        ngx_add_timer(pc->write, pscf->timeout);
++        ngx_add_timer(pc->write, ctx->timeout);
+
+         pc->write->handler = ngx_stream_proxy_connect_handler;
+
+@@ -1179,6 +1207,9 @@ ngx_stream_proxy_ssl_init_connection(ngx_stream_session_t *s)
+     ngx_connection_t             *pc;
+     ngx_stream_upstream_t        *u;
+     ngx_stream_proxy_srv_conf_t  *pscf;
++    ngx_stream_proxy_ctx_t       *ctx;
++
++    ctx = ngx_stream_get_module_ctx(s, ngx_stream_proxy_module);
+
+     u = s->upstream;
+
+@@ -1227,7 +1258,7 @@ ngx_stream_proxy_ssl_init_connection(ngx_stream_session_t *s)
+     if (rc == NGX_AGAIN) {
+
+         if (!pc->write->timer_set) {
+-            ngx_add_timer(pc->write, pscf->connect_timeout);
++            ngx_add_timer(pc->write, ctx->connect_timeout);
+         }
+
+         pc->ssl->handler = ngx_stream_proxy_ssl_handshake;
+@@ -1537,6 +1568,7 @@ ngx_stream_proxy_process_connection(ngx_event_t *ev, ngx_uint_t from_upstream)
+     ngx_stream_session_t         *s;
+     ngx_stream_upstream_t        *u;
+     ngx_stream_proxy_srv_conf_t  *pscf;
++    ngx_stream_proxy_ctx_t       *ctx;
+
+     c = ev->data;
+     s = c->data;
+@@ -1548,6 +1580,8 @@ ngx_stream_proxy_process_connection(ngx_event_t *ev, ngx_uint_t from_upstream)
+         return;
+     }
+
++    ctx = ngx_stream_get_module_ctx(s, ngx_stream_proxy_module);
++
+     c = s->connection;
+     pc = u->peer.connection;
+
+@@ -1567,7 +1601,7 @@ ngx_stream_proxy_process_connection(ngx_event_t *ev, ngx_uint_t from_upstream)
+                 }
+
+                 if (u->connected && !c->read->delayed && !pc->read->delayed) {
+-                    ngx_add_timer(c->write, pscf->timeout);
++                    ngx_add_timer(c->write, ctx->timeout);
+                 }
+
+                 return;
+@@ -1729,6 +1763,9 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
+     ngx_log_handler_pt            handler;
+     ngx_stream_upstream_t        *u;
+     ngx_stream_proxy_srv_conf_t  *pscf;
++    ngx_stream_proxy_ctx_t       *ctx;
++
++    ctx = ngx_stream_get_module_ctx(s, ngx_stream_proxy_module);
+
+     u = s->upstream;
+
+@@ -1920,7 +1957,7 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
+         }
+
+         if (!c->read->delayed && !pc->read->delayed) {
+-            ngx_add_timer(c->write, pscf->timeout);
++            ngx_add_timer(c->write, ctx->timeout);
+
+         } else if (c->write->timer_set) {
+             ngx_del_timer(c->write);
+@@ -2215,7 +2252,7 @@ ngx_stream_proxy_create_srv_conf(ngx_conf_t *cf)
+     conf->responses = NGX_CONF_UNSET_UINT;
+     conf->next_upstream_tries = NGX_CONF_UNSET_UINT;
+     conf->next_upstream = NGX_CONF_UNSET;
+-    conf->proxy_protocol = NGX_CONF_UNSET;
++    conf->proxy_protocol = NGX_CONF_UNSET_UINT;
+     conf->local = NGX_CONF_UNSET_PTR;
+     conf->socket_keepalive = NGX_CONF_UNSET;
+     conf->half_close = NGX_CONF_UNSET;
+@@ -2271,7 +2308,7 @@ ngx_stream_proxy_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
+
+     ngx_conf_merge_value(conf->next_upstream, prev->next_upstream, 1);
+
+-    ngx_conf_merge_value(conf->proxy_protocol, prev->proxy_protocol, 0);
++    ngx_conf_merge_uint_value(conf->proxy_protocol, prev->proxy_protocol, 0);
+
+     ngx_conf_merge_ptr_value(conf->local, prev->local, NULL);
+
+@@ -2681,3 +2718,14 @@ ngx_stream_proxy_bind(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+
+     return NGX_CONF_OK;
+ }
++
++
++ngx_uint_t
++ngx_stream_proxy_get_next_upstream_tries(ngx_stream_session_t *s)
++{
++    ngx_stream_proxy_srv_conf_t      *pscf;
++
++    pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
++
++    return pscf->next_upstream_tries;
++}
+diff --git a/src/stream/ngx_stream_ssl_module.c b/src/stream/ngx_stream_ssl_module.c
+index 12e2d348b..4d55a01e6 100644
+--- a/src/stream/ngx_stream_ssl_module.c
++++ b/src/stream/ngx_stream_ssl_module.c
+@@ -647,6 +647,31 @@ ngx_stream_ssl_servername(ngx_ssl_conn_t *ssl_conn, int *ad, void *arg)
+         goto done;
+     }
+
++    sscf = ngx_stream_get_module_srv_conf(cscf->ctx, ngx_stream_ssl_module);
++
++#if (defined TLS1_3_VERSION                                                   \
++     && !defined LIBRESSL_VERSION_NUMBER && !defined OPENSSL_IS_BORINGSSL)
++
++    /*
++     * SSL_SESSION_get0_hostname() is only available in OpenSSL 1.1.1+,
++     * but servername being negotiated in every TLSv1.3 handshake
++     * is only returned in OpenSSL 1.1.1+ as well
++     */
++
++    if (sscf->verify) {
++        const char  *hostname;
++
++        hostname = SSL_SESSION_get0_hostname(SSL_get0_session(ssl_conn));
++
++        if (hostname != NULL && ngx_strcmp(hostname, servername) != 0) {
++            c->ssl->handshake_rejected = 1;
++            *ad = SSL_AD_ACCESS_DENIED;
++            return SSL_TLSEXT_ERR_ALERT_FATAL;
++        }
++    }
++
++#endif
++
+     s->srv_conf = cscf->ctx->srv_conf;
+
+     ngx_set_connection_log(c, cscf->error_log);
+diff --git a/src/stream/ngx_stream_ssl_preread_module.c b/src/stream/ngx_stream_ssl_preread_module.c
+index 7aa86699d..fca89781f 100644
+--- a/src/stream/ngx_stream_ssl_preread_module.c
++++ b/src/stream/ngx_stream_ssl_preread_module.c
+@@ -190,11 +190,11 @@ ngx_stream_ssl_preread_handler(ngx_stream_session_t *s)
+         }
+
+         if (rc == NGX_OK) {
+-            return ngx_stream_ssl_preread_servername(s, &ctx->host);
++            rc = ngx_stream_ssl_preread_servername(s, &ctx->host);
+         }
+
+         if (rc != NGX_AGAIN) {
+-            return rc;
++            return rc == NGX_OK ? NGX_DECLINED : rc;
+         }
+
+         p += len;
+diff --git a/src/stream/ngx_stream_upstream.h b/src/stream/ngx_stream_upstream.h
+index c581aa0be..2f989ac23 100644
+--- a/src/stream/ngx_stream_upstream.h
++++ b/src/stream/ngx_stream_upstream.h
+@@ -146,7 +146,7 @@ typedef struct {
+     ngx_stream_upstream_resolved_t    *resolved;
+     ngx_stream_upstream_state_t       *state;
+     unsigned                           connected:1;
+-    unsigned                           proxy_protocol:1;
++    unsigned                           proxy_protocol:2;
+     unsigned                           half_closed:1;
+ } ngx_stream_upstream_t;
+
+@@ -162,4 +162,9 @@ ngx_stream_upstream_srv_conf_t *ngx_stream_upstream_add(ngx_conf_t *cf,
+ extern ngx_module_t  ngx_stream_upstream_module;
+
+
++#ifndef HAVE_BALANCER_STATUS_CODE_PATCH
++#define HAVE_BALANCER_STATUS_CODE_PATCH
++#endif
++
++
+ #endif /* _NGX_STREAM_UPSTREAM_H_INCLUDED_ */
+diff --git a/src/stream/ngx_stream_upstream_round_robin.c b/src/stream/ngx_stream_upstream_round_robin.c
+index dd80322c8..f6e1d0124 100644
+--- a/src/stream/ngx_stream_upstream_round_robin.c
++++ b/src/stream/ngx_stream_upstream_round_robin.c
+@@ -21,10 +21,6 @@ static void ngx_stream_upstream_notify_round_robin_peer(
+
+ #if (NGX_STREAM_SSL)
+
+-static ngx_int_t ngx_stream_upstream_set_round_robin_peer_session(
+-    ngx_peer_connection_t *pc, void *data);
+-static void ngx_stream_upstream_save_round_robin_peer_session(
+-    ngx_peer_connection_t *pc, void *data);
+ static ngx_int_t ngx_stream_upstream_empty_set_session(
+     ngx_peer_connection_t *pc, void *data);
+ static void ngx_stream_upstream_empty_save_session(ngx_peer_connection_t *pc,
+@@ -898,7 +894,7 @@ ngx_stream_upstream_notify_round_robin_peer(ngx_peer_connection_t *pc,
+
+ #if (NGX_STREAM_SSL)
+
+-static ngx_int_t
++ngx_int_t
+ ngx_stream_upstream_set_round_robin_peer_session(ngx_peer_connection_t *pc,
+     void *data)
+ {
+@@ -960,7 +956,7 @@ ngx_stream_upstream_set_round_robin_peer_session(ngx_peer_connection_t *pc,
+ }
+
+
+-static void
++void
+ ngx_stream_upstream_save_round_robin_peer_session(ngx_peer_connection_t *pc,
+     void *data)
+ {
+diff --git a/src/stream/ngx_stream_upstream_round_robin.h b/src/stream/ngx_stream_upstream_round_robin.h
+index d36c2ad06..acf307525 100644
+--- a/src/stream/ngx_stream_upstream_round_robin.h
++++ b/src/stream/ngx_stream_upstream_round_robin.h
+@@ -228,5 +228,15 @@ ngx_int_t ngx_stream_upstream_get_round_robin_peer(ngx_peer_connection_t *pc,
+ void ngx_stream_upstream_free_round_robin_peer(ngx_peer_connection_t *pc,
+     void *data, ngx_uint_t state);
+
++#if (NGX_STREAM_SSL)
++ngx_int_t ngx_stream_upstream_set_round_robin_peer_session(
++    ngx_peer_connection_t *pc, void *data);
++void ngx_stream_upstream_save_round_robin_peer_session(
++    ngx_peer_connection_t *pc, void *data);
++#endif
++
++
++#define HAVE_NGX_STREAM_BALANCER_EXPORT_PATCH 1
++
+
+ #endif /* _NGX_STREAM_UPSTREAM_ROUND_ROBIN_H_INCLUDED_ */

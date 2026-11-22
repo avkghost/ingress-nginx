@@ -1,0 +1,100 @@
+name: Build and publish controller to GHCR
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to publish
+        required: true
+        default: v2.2.10
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/avkghost/ingress-nginx/controller
+
+jobs:
+  publish:
+    name: Build, scan, and publish controller image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Resolve image tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag='${{ inputs.tag }}'
+          else
+            tag='${{ github.ref_name }}'
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Refusing non-release tag: $tag" >&2
+            exit 1
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build NGINX base image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: images/nginx/rootfs
+          platforms: linux/amd64
+          load: true
+          tags: ingress-nginx/nginx:${{ steps.version.outputs.tag }}
+
+      - name: Build controller image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: rootfs/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+          build-args: |
+            BASE_IMAGE=ingress-nginx/nginx:${{ steps.version.outputs.tag }}
+            VERSION=${{ steps.version.outputs.tag }}
+            TARGETARCH=amd64
+            COMMIT_SHA=${{ github.sha }}
+            BUILD_ID=${{ github.run_id }}
+
+      - name: Scan image before publishing
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: '1'
+          format: table
+
+      - name: Push image
+        id: push
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          docker push "$IMAGE:$TAG"
+          digest="$(docker image inspect "$IMAGE:$TAG" --format='{{index .RepoDigests 0}}')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Published image"
+            echo
+            echo "\`$digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"

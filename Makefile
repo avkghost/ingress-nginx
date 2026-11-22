@@ -82,7 +82,11 @@ image: clean-image ## Build image for a particular arch.
 
 .PHONY: gosec
 gosec:
-	docker run --rm -it -w /source/ -v "$(pwd)"/:/source securego/gosec:2.11.0 -exclude=G109,G601,G104,G204,G304,G306,G307 -tests=false -exclude-dir=test -exclude-dir=images/  -exclude-dir=docs/ /source/...
+	docker run --rm -it -w /source/ -v "$(pwd)"/:/source securego/gosec:2.30.0 -exclude=G109,G601,G104,G204,G304,G306,G307 -tests=false -exclude-dir=test -exclude-dir=images/  -exclude-dir=docs/ /source/...
+
+.PHONY: security-scan
+security-scan: ## Run Go vulnerability, source, and dependency scanners.
+	@bash hack/security-scan.sh
 
 .PHONY: image-chroot
 image-chroot: clean-chroot-image ## Build image for a particular arch.

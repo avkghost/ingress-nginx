@@ -50,7 +50,7 @@ jobs:
       - name: Scan repository with Trivy
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
-          version: 0.76.2
+          version: v0.76.2
           scan-type: fs
           scan-ref: .
           # Dockerfile/Helm misconfiguration is validated by image and chart jobs;
@@ -64,7 +64,7 @@ jobs:
           exit-code: 1
 
       - name: Upload Trivy SARIF
-        if: always()
+        if: always() && hashFiles('trivy-filesystem.sarif') != ''
         uses: github/codeql-action/upload-sarif@b1bff81932f5cdfc8695c7752dcee935dcd061c8 # v4.33.0
         with:
           sarif_file: trivy-filesystem.sarif

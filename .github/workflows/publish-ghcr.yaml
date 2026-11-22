@@ -41,9 +41,6 @@ jobs:
           }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -52,31 +49,26 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build NGINX base image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: images/nginx/rootfs
-          platforms: linux/amd64
-          load: true
-          tags: ingress-nginx/nginx:${{ steps.version.outputs.tag }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: docker build --pull=false -t "ingress-nginx/nginx:$TAG" images/nginx/rootfs
 
       - name: Build controller image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: rootfs/Dockerfile
-          platforms: linux/amd64
-          load: true
-          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
-          build-args: |
-            BASE_IMAGE=ingress-nginx/nginx:${{ steps.version.outputs.tag }}
-            VERSION=${{ steps.version.outputs.tag }}
-            TARGETARCH=amd64
-            COMMIT_SHA=${{ github.sha }}
-            BUILD_ID=${{ github.run_id }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          docker build --pull=false \
+            --build-arg BASE_IMAGE="ingress-nginx/nginx:$TAG" \
+            --build-arg VERSION="$TAG" \
+            --build-arg TARGETARCH=amd64 \
+            --build-arg COMMIT_SHA="${{ github.sha }}" \
+            --build-arg BUILD_ID="${{ github.run_id }}" \
+            -t "$IMAGE:$TAG" rootfs
 
       - name: Scan image before publishing
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
+          version: 0.76.2
           image-ref: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
           scanners: vuln,secret,misconfig
           severity: HIGH,CRITICAL

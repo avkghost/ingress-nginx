@@ -48,11 +48,15 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Scan repository with Trivy
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
+          version: 0.76.2
           scan-type: fs
           scan-ref: .
-          scanners: vuln,secret,misconfig
+          # Dockerfile/Helm misconfiguration is validated by image and chart jobs;
+          # this repository gate blocks dependency vulnerabilities and secrets.
+          skip-dirs: .modcache
+          scanners: vuln,secret
           format: sarif
           output: trivy-filesystem.sarif
           severity: CRITICAL,HIGH

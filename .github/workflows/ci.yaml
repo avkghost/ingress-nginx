@@ -177,8 +177,6 @@ jobs:
           sudo mv ./kubectl /usr/local/bin/kubectl
 
       - name: Build NGINX Base image
-        if: |
-          needs.changes.outputs.baseimage == 'true'
         run: |
             export TAG=$(cat images/nginx/TAG)
             cd images/nginx/rootfs && docker buildx build --network=host --platform=${{ env.PLATFORMS }} --load -t ghcr.io/avkghost/ingress-nginx/nginx:${TAG} .

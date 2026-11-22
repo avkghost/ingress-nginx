@@ -112,3 +112,34 @@ and then publish such version with
 ```console
 docker push $REGISTRY/controller:$TAG
 ```
+
+### GHCR release images
+
+This fork publishes release-tagged controller images through
+`.github/workflows/publish-ghcr.yaml`. Push a semantic version tag such as
+`v2.2.10`, or run the workflow manually with the desired tag. The workflow
+builds the NGINX base image from `images/nginx/rootfs`, builds the controller,
+runs Trivy with HIGH and CRITICAL findings blocking publication, and publishes
+to:
+
+```text
+ghcr.io/avkghost/ingress-nginx/controller:v2.2.10
+```
+
+The workflow currently builds `linux/amd64`, matching the validated k3s
+environment. Deploy the digest printed in the workflow summary rather than a
+mutable tag:
+
+```console
+helm upgrade ingress-nginx ./charts/ingress-nginx \
+  --namespace ingress-nginx \
+  --set controller.image.repository=ghcr.io/avkghost/ingress-nginx/controller \
+  --set controller.image.tag=v2.2.10 \
+  --set controller.image.digest=sha256:<published-digest>
+```
+
+Run repository dependency and source scans locally with:
+
+```console
+make security-scan
+```

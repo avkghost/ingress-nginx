@@ -56,6 +56,12 @@ jobs:
           ct lint --config .ct.yaml
           ah lint --path charts/ingress-nginx
 
+      - name: Ensure chart index branch exists
+        run: |
+          if ! git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git push origin HEAD:refs/heads/gh-pages
+          fi
+
       - name: Release chart
         uses: helm/chart-releaser-action@cae68fefc6b5f367a0275617c9f83181ba54714f # v1.7.0
         env:

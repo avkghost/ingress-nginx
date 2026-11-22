@@ -52,13 +52,13 @@ jobs:
       - name: Build NGINX base image
         env:
           TAG: ${{ steps.version.outputs.tag }}
-        run: docker build --pull=false -t "ingress-nginx/nginx:$TAG" images/nginx/rootfs
+        run: docker build --network=host --pull=false -t "ingress-nginx/nginx:$TAG" images/nginx/rootfs
 
       - name: Build controller image
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          docker build --pull=false \
+          docker build --network=host --pull=false \
             --build-arg BASE_IMAGE="ingress-nginx/nginx:$TAG" \
             --build-arg VERSION="$TAG" \
             --build-arg TARGETARCH=amd64 \

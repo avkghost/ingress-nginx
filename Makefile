@@ -71,6 +71,7 @@ help:  ## Display this help
 image: clean-image ## Build image for a particular arch.
 	echo "Building docker image ($(ARCH))..."
 	docker build \
+		--network=host \
 		${PLATFORM_FLAG} ${PLATFORM} \
 		--no-cache \
 		--build-arg BASE_IMAGE="$(BASE_IMAGE)" \
@@ -92,6 +93,7 @@ security-scan: ## Run Go vulnerability, source, and dependency scanners.
 image-chroot: clean-chroot-image ## Build image for a particular arch.
 	echo "Building docker image ($(ARCH))..."
 	docker build \
+		--network=host \
 		--no-cache \
 		--build-arg BASE_IMAGE="$(BASE_IMAGE)" \
 		--build-arg VERSION="$(TAG)" \

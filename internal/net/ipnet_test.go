@@ -55,3 +55,20 @@ func TestParseCIDRs(t *testing.T) {
 		t.Errorf("expected %v but got %v", expected, cidr)
 	}
 }
+
+func FuzzParseCIDRs(f *testing.F) {
+	f.Add("192.0.2.1, 198.51.100.0/24")
+	f.Add("")
+	f.Add("invalid")
+
+	f.Fuzz(func(t *testing.T, input string) {
+		cidrs, err := ParseCIDRs(input)
+		if err != nil {
+			return
+		}
+
+		if !sort.StringsAreSorted(cidrs) {
+			t.Fatalf("ParseCIDRs returned unsorted results for %q: %v", input, cidrs)
+		}
+	})
+}

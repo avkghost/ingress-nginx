@@ -232,7 +232,7 @@ live-docs: ## Build and launch a local copy of the documentation website in http
 
 .PHONY: misspell
 misspell:  ## Check for spelling errors.
-	@go install github.com/client9/misspell/cmd/misspell@latest
+	@go install github.com/client9/misspell/cmd/misspell@v0.3.4
 	misspell \
 		-locale US \
 		-error \

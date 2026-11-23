@@ -20,15 +20,12 @@ set -o pipefail
 
 export KUBE_ROOT=$(dirname "${BASH_SOURCE}")/..
 
-# Install tools we need, but only from vendor/...
+# Build the version pinned in go.mod/go.sum. Keep the binary temporary so the
+# script does not modify the developer's GOPATH.
 cd ${KUBE_ROOT}
-go install ./vendor/github.com/tallclair/mdtoc
-if ! which mdtoc >/dev/null 2>&1; then
-    echo "Can't find mdtoc - is your GOPATH 'bin' in your PATH?" >&2
-    echo "  GOPATH: ${GOPATH}" >&2
-    echo "  PATH:   ${PATH}" >&2
-    exit 1
-fi
+TOOL_DIR=$(mktemp -d)
+trap 'rm -rf "${TOOL_DIR}"' EXIT
+go build -o "${TOOL_DIR}/mdtoc" sigs.k8s.io/mdtoc
 
 # Update tables of contents if necessary.
-grep --include='*.md' -rl docs/enhancements/* -e '<!-- toc -->' | xargs mdtoc --inplace
+grep --include='*.md' -rl docs/enhancements/* -e '<!-- toc -->' | xargs "${TOOL_DIR}/mdtoc" --inplace

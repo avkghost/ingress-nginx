@@ -14,8 +14,7 @@ on:
       - 'images/**'
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   PLATFORMS: linux/amd64
@@ -163,8 +162,7 @@ jobs:
 
   nginx:
     permissions:
-      contents: write
-      packages: write
+      contents: read
     runs-on: ubuntu-latest
     needs: changes
     if: |

@@ -18,8 +18,7 @@ env:
   PLATFORMS: ${{ inputs.platforms-test }}
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   changestag:
@@ -61,8 +60,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'kubernetes/ingress-nginx' && needs.changestag.outputs.tag == 'true')
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      packages: write
+      contents: read
     env:
       PLATFORMS: ${{ inputs.platforms-publish }}
     steps:

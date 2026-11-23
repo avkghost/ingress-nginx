@@ -1,0 +1,3 @@
+# Require explicit ownership review for every repository change.
+# Branch protection must require a Code Owner approval for this file to apply.
+* @avkghost

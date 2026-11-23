@@ -5,11 +5,13 @@ on:
     types: [published]
 
 permissions:
-  contents: write # for goreleaser/goreleaser-action
+  contents: read
 
 jobs:
   release-plugin:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the GitHub release
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

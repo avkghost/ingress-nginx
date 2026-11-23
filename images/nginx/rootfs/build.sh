@@ -332,7 +332,7 @@ git submodule init
 git submodule update
 
 cd "$BUILD_PATH"
-git clone --depth=1 https://github.com/ssdeep-project/ssdeep
+git clone --branch release-2.14.1 --depth=1 https://github.com/ssdeep-project/ssdeep
 cd ssdeep/
 
 ./bootstrap

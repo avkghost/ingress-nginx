@@ -15,7 +15,7 @@ ARG BASE_IMAGE
 ARG GOLANG_VERSION
 ARG ETCD_VERSION
 
-FROM golang:${GOLANG_VERSION}-alpine3.23 AS go
+FROM golang:1.27.4-alpine3.23@sha256:f70850ef6ce341e8b6427f677049145d63c0b7ce002d4d7e3d464828b1b96dcd AS go
 FROM registry.k8s.io/etcd:${ETCD_VERSION} AS etcd
 
 FROM ${BASE_IMAGE}
@@ -110,7 +110,7 @@ RUN wget -qO /tmp/ct-${CHART_TESTING_VERSION}-linux-${TARGETARCH}.tar.gz \
   && rm -rf /tmp/*
 
 RUN wget -qO /usr/local/bin/lj-releng \
-  https://raw.githubusercontent.com/openresty/openresty-devel-utils/master/lj-releng \
+  https://raw.githubusercontent.com/openresty/openresty-devel-utils/95e99dea5744d16d4078c867b1cfc5617f91efc7/lj-releng \
   && chmod +x /usr/local/bin/lj-releng
 
 
@@ -130,9 +130,9 @@ RUN apk update -U \
 # Install Yamale YAML schema validator
 # Commenting pip install yamale because broken cloudbuild https://github.com/kubernetes/ingress-nginx/pull/10885
 # RUN pip install --user "yamale==$YAMALE_VERSION"
-RUN wget https://github.com/23andMe/Yamale/archive/master.zip \
-    && unzip -d /tmp master.zip \
-    && cd /tmp/Yamale-master \
+RUN wget -qO /tmp/yamale.zip https://github.com/23andMe/Yamale/archive/refs/tags/${YAMALE_VERSION}.zip \
+    && unzip -d /tmp /tmp/yamale.zip \
+    && cd /tmp/Yamale-${YAMALE_VERSION} \
     && python setup.py install \
     && yamale -V
 

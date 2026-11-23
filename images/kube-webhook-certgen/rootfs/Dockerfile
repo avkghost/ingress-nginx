@@ -14,7 +14,7 @@
 
 ARG GOLANG_VERSION
 
-FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION} AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4@sha256:205c7636d74e0ffbe3d007162df7d74f859f5a8c8322dfb9f907977686c126cf AS builder
 
 ARG BUILDPLATFORM
 ARG TARGETARCH
@@ -24,7 +24,7 @@ WORKDIR /workspace
 COPY . .
 RUN go mod tidy && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -a -o kube-webhook-certgen main.go
 
-FROM --platform=$BUILDPLATFORM gcr.io/distroless/static:nonroot
+FROM --platform=$BUILDPLATFORM gcr.io/distroless/static:nonroot@sha256:8ce6dd87e9823c5b48dcfb2c8604714ccb351ce59607327bcc4957448da279b5
 ARG BUILDPLATFORM
 ARG TARGETARCH
 

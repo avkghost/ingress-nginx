@@ -14,15 +14,16 @@
 
 ARG GOLANG_VERSION
 
-FROM golang:${GOLANG_VERSION} AS builder
+FROM golang:1.27.4@sha256:205c7636d74e0ffbe3d007162df7d74f859f5a8c8322dfb9f907977686c126cf AS builder
 
 ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 ENV HTTPBUN_COMMIT=a6b387c438b664322734250e426b6966966c2fe4
 
-RUN git clone https://github.com/sharat87/httpbun.git
-WORKDIR httpbun
-RUN git checkout $HTTPBUN_COMMIT
+RUN git init /go/httpbun \
+    && git -C /go/httpbun fetch --depth=1 https://github.com/sharat87/httpbun.git $HTTPBUN_COMMIT \
+    && git -C /go/httpbun checkout --detach $HTTPBUN_COMMIT
+WORKDIR /go/httpbun
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -installsuffix cgo \

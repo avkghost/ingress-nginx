@@ -13,7 +13,7 @@
 # limitations under the License.
 ARG GOLANG_VERSION
 
-FROM golang:${GOLANG_VERSION}-alpine3.23 AS builder
+FROM golang:1.27.4-alpine3.23@sha256:f70850ef6ce341e8b6427f677049145d63c0b7ce002d4d7e3d464828b1b96dcd AS builder
 
 WORKDIR /go/src/k8s.io/ingress-nginx/images/fastcgi
 
@@ -25,7 +25,7 @@ RUN CGO_ENABLED=0 go build -a -installsuffix cgo \
 
 # Use distroless as minimal base image to package the binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot@sha256:8ce6dd87e9823c5b48dcfb2c8604714ccb351ce59607327bcc4957448da279b5
 
 COPY --from=builder /go/src/k8s.io/ingress-nginx/images/fastcgi/fastcgi-helloserver /
 USER nonroot:nonroot

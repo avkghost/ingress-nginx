@@ -83,7 +83,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       
       - name: Lint Lua
-        uses: lunarmodules/luacheck@v1
+        uses: lunarmodules/luacheck@cc089e3f65acdd1ef8716cc73a3eca24a6b845e4 # v1
         with:
           args: --codes --globals lua_ingress --globals configuration --globals balancer --globals monitor --globals certificate --globals tcp_udp_configuration --globals tcp_udp_balancer --no-max-comment-line-length -q rootfs/etc/nginx/lua/
 

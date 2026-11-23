@@ -1,7 +1,5 @@
 
 DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-E2E_BASE_IMAGE ?= "registry.k8s.io/ingress-nginx/e2e-test-runner:v2.2.9@sha256:6eda6a8d17ff65c5af647abb0714b882047b77d18161712d77daf5f610fd4020"
-
 image:
 	echo "..entered Makefile in /test/e2e-image"
 	echo "..calling Make target <<e2e-test-binary>> in /Makefile from inside /test/e2e-image/Makefile"
@@ -17,7 +15,6 @@ image:
 
 	docker build \
 		--network=host \
-		--build-arg E2E_BASE_IMAGE=$(E2E_BASE_IMAGE) \
 		--tag nginx-ingress-controller:e2e .
 
 clean:

@@ -217,12 +217,12 @@ func (a auth) Parse(ing *networking.Ingress) (interface{}, error) {
 	var authFile []byte
 	switch secretType {
 	case fileAuth:
-		authFile, err = dumpSecretAuthFile(passFilePath, a.authDirectory, secret)
+		authFile, err = dumpSecretAuthFile(passFileName, a.authDirectory, secret)
 		if err != nil {
 			return nil, err
 		}
 	case mapAuth:
-		authFile, err = dumpSecretAuthMap(passFilePath, a.authDirectory, secret)
+		authFile, err = dumpSecretAuthMap(passFileName, a.authDirectory, secret)
 		if err != nil {
 			return nil, err
 		}
@@ -253,13 +253,10 @@ func dumpSecretAuthFile(filename, authDirectory string, secret *api.Secret) ([]b
 		}
 	}
 
-	baseDir, baseErr := filepath.Abs(authDirectory)
-	targetPath, targetErr := filepath.Abs(filename)
-	relativePath, relativeErr := filepath.Rel(baseDir, targetPath)
-	if baseErr != nil || targetErr != nil || relativeErr != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return nil, ing_errors.LocationDeniedError{Reason: fmt.Errorf("password file path is outside auth directory: %s", filename)}
+	if filename == "" || filepath.Base(filename) != filename || strings.Contains(filename, "..") || strings.ContainsAny(filename, `/\\`) {
+		return nil, ing_errors.LocationDeniedError{Reason: fmt.Errorf("invalid password file name: %s", filename)}
 	}
-	safeFilename := filepath.Join(baseDir, filepath.Base(targetPath))
+	safeFilename := filepath.Join(authDirectory, filename)
 
 	err := os.WriteFile(safeFilename, val, file.ReadWriteByUser)
 	if err != nil {
@@ -280,13 +277,10 @@ func dumpSecretAuthMap(filename, authDirectory string, secret *api.Secret) ([]by
 		builder.WriteString("\n")
 	}
 
-	baseDir, baseErr := filepath.Abs(authDirectory)
-	targetPath, targetErr := filepath.Abs(filename)
-	relativePath, relativeErr := filepath.Rel(baseDir, targetPath)
-	if baseErr != nil || targetErr != nil || relativeErr != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return nil, ing_errors.LocationDeniedError{Reason: fmt.Errorf("password file path is outside auth directory: %s", filename)}
+	if filename == "" || filepath.Base(filename) != filename || strings.Contains(filename, "..") || strings.ContainsAny(filename, `/\\`) {
+		return nil, ing_errors.LocationDeniedError{Reason: fmt.Errorf("invalid password file name: %s", filename)}
 	}
-	safeFilename := filepath.Join(baseDir, filepath.Base(targetPath))
+	safeFilename := filepath.Join(authDirectory, filename)
 	content := []byte(builder.String())
 
 	err := os.WriteFile(safeFilename, content, file.ReadWriteByUser)

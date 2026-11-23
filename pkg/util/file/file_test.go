@@ -16,10 +16,7 @@ limitations under the License.
 
 package file
 
-import (
-	"os"
-	"testing"
-)
+import "testing"
 
 func TestSHA1(t *testing.T) {
 	tests := []struct {
@@ -31,31 +28,10 @@ func TestSHA1(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		f, err := os.CreateTemp("", "sha-test")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := f.Write(test.content); err != nil {
-			t.Error(err)
-		}
-		if err := f.Sync(); err != nil {
-			t.Error(err)
-		}
-
 		sha := SHA1Bytes(test.content)
-		f.Close()
 
 		if sha != test.sha {
 			t.Fatalf("expected %v but returned %s", test.sha, sha)
 		}
-
-		if got := SHA1(f.Name()); got != "" {
-			t.Fatalf("expected unmanaged path to be rejected, got %s", got)
-		}
-	}
-
-	sha := SHA1("")
-	if sha != "" {
-		t.Fatalf("expected an empty sha but returned %s", sha)
 	}
 }

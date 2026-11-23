@@ -214,14 +214,15 @@ func (a auth) Parse(ing *networking.Ingress) (interface{}, error) {
 		}
 	}
 
+	var authFile []byte
 	switch secretType {
 	case fileAuth:
-		err = dumpSecretAuthFile(passFilePath, a.authDirectory, secret)
+		authFile, err = dumpSecretAuthFile(passFilePath, a.authDirectory, secret)
 		if err != nil {
 			return nil, err
 		}
 	case mapAuth:
-		err = dumpSecretAuthMap(passFilePath, a.authDirectory, secret)
+		authFile, err = dumpSecretAuthMap(passFilePath, a.authDirectory, secret)
 		if err != nil {
 			return nil, err
 		}
@@ -236,7 +237,7 @@ func (a auth) Parse(ing *networking.Ingress) (interface{}, error) {
 		Realm:      realm,
 		File:       passFilePath,
 		Secured:    true,
-		FileSHA:    file.SHA1(passFilePath),
+		FileSHA:    file.SHA1Bytes(authFile),
 		Secret:     name,
 		SecretType: secretType,
 	}, nil
@@ -244,10 +245,10 @@ func (a auth) Parse(ing *networking.Ingress) (interface{}, error) {
 
 // dumpSecretAuthFile dumps the content of a secret into a file
 // in the expected format for the specified authorization
-func dumpSecretAuthFile(filename, authDirectory string, secret *api.Secret) error {
+func dumpSecretAuthFile(filename, authDirectory string, secret *api.Secret) ([]byte, error) {
 	val, ok := secret.Data["auth"]
 	if !ok {
-		return ing_errors.LocationDeniedError{
+		return nil, ing_errors.LocationDeniedError{
 			Reason: fmt.Errorf("the secret %s does not contain a key with value auth", secret.Name),
 		}
 	}
@@ -256,22 +257,21 @@ func dumpSecretAuthFile(filename, authDirectory string, secret *api.Secret) erro
 	targetPath, targetErr := filepath.Abs(filename)
 	relativePath, relativeErr := filepath.Rel(baseDir, targetPath)
 	if baseErr != nil || targetErr != nil || relativeErr != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return ing_errors.LocationDeniedError{Reason: fmt.Errorf("password file path is outside auth directory: %s", filename)}
+		return nil, ing_errors.LocationDeniedError{Reason: fmt.Errorf("password file path is outside auth directory: %s", filename)}
 	}
-	// codeql[go/path-injection] The validated path is reduced to one filename under the fixed auth directory.
 	safeFilename := filepath.Join(baseDir, filepath.Base(targetPath))
 
 	err := os.WriteFile(safeFilename, val, file.ReadWriteByUser)
 	if err != nil {
-		return ing_errors.LocationDeniedError{
+		return nil, ing_errors.LocationDeniedError{
 			Reason: fmt.Errorf("unexpected error creating password file: %w", err),
 		}
 	}
 
-	return nil
+	return val, nil
 }
 
-func dumpSecretAuthMap(filename, authDirectory string, secret *api.Secret) error {
+func dumpSecretAuthMap(filename, authDirectory string, secret *api.Secret) ([]byte, error) {
 	builder := &strings.Builder{}
 	for user, pass := range secret.Data {
 		builder.WriteString(user)
@@ -284,19 +284,19 @@ func dumpSecretAuthMap(filename, authDirectory string, secret *api.Secret) error
 	targetPath, targetErr := filepath.Abs(filename)
 	relativePath, relativeErr := filepath.Rel(baseDir, targetPath)
 	if baseErr != nil || targetErr != nil || relativeErr != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return ing_errors.LocationDeniedError{Reason: fmt.Errorf("password file path is outside auth directory: %s", filename)}
+		return nil, ing_errors.LocationDeniedError{Reason: fmt.Errorf("password file path is outside auth directory: %s", filename)}
 	}
-	// codeql[go/path-injection] The validated path is reduced to one filename under the fixed auth directory.
 	safeFilename := filepath.Join(baseDir, filepath.Base(targetPath))
+	content := []byte(builder.String())
 
-	err := os.WriteFile(safeFilename, []byte(builder.String()), file.ReadWriteByUser)
+	err := os.WriteFile(safeFilename, content, file.ReadWriteByUser)
 	if err != nil {
-		return ing_errors.LocationDeniedError{
+		return nil, ing_errors.LocationDeniedError{
 			Reason: fmt.Errorf("unexpected error creating password file: %w", err),
 		}
 	}
 
-	return nil
+	return content, nil
 }
 
 func (a auth) GetDocumentation() parser.AnnotationFields {

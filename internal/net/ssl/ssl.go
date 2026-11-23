@@ -238,7 +238,7 @@ func ConfigureCRL(name string, crl []byte, sslCert *ingress.SSLCert) error {
 	}
 
 	sslCert.CRLFileName = crlFileName
-	sslCert.CRLSHA = file.SHA1(crlFileName)
+	sslCert.CRLSHA = file.SHA1Bytes(crl)
 
 	return nil
 }
@@ -390,7 +390,7 @@ func GetFakeSSLCert() *ingress.SSLCert {
 	}
 
 	sslCert.PemFileName = path
-	sslCert.PemSHA = file.SHA1(path)
+	sslCert.PemSHA = file.SHA1Bytes([]byte(sslCert.PemCertKey))
 
 	return sslCert
 }

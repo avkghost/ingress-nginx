@@ -120,7 +120,7 @@ func (s *k8sStore) getPemCertificate(secretName string) (*ingress.SSLCert, error
 			sslCert.PemFileName = path
 			sslCert.CACertificate = caCert
 			sslCert.CAFileName = path
-			sslCert.CASHA = file.SHA1(path)
+			sslCert.CASHA = file.SHA1Bytes([]byte(sslCert.PemCertKey))
 
 			err = ssl.ConfigureCACertWithCertAndKey(nsSecName, ca, sslCert)
 			if err != nil {
@@ -156,7 +156,7 @@ func (s *k8sStore) getPemCertificate(secretName string) (*ingress.SSLCert, error
 			return nil, fmt.Errorf("error configuring CA certificate: %v", err)
 		}
 
-		sslCert.CASHA = file.SHA1(sslCert.CAFileName)
+		sslCert.CASHA = file.SHA1Bytes(ca)
 
 		if len(crl) > 0 {
 			err = ssl.ConfigureCRL(nsSecName, crl, sslCert)

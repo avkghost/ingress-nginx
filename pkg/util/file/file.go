@@ -19,31 +19,7 @@ package file
 import (
 	"crypto/sha1" // #nosec
 	"encoding/hex"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"k8s.io/klog/v2"
 )
-
-// SHA1 returns the SHA1 of a file.
-func SHA1(filename string) string {
-	safeFilename, err := managedPath(filename)
-	if err != nil {
-		klog.ErrorS(err, "Refusing to hash unmanaged file path", "path", filename)
-		return ""
-	}
-
-	// codeql[go/path-injection] managedPath restricts this path to the fixed SSL/auth directories.
-	s, err := os.ReadFile(safeFilename)
-	if err != nil {
-		klog.ErrorS(err, "Error reading file", "path", filename)
-		return ""
-	}
-
-	return SHA1Bytes(s)
-}
 
 // SHA1Bytes returns the SHA1 of data.
 func SHA1Bytes(data []byte) string {
@@ -54,25 +30,4 @@ func SHA1Bytes(data []byte) string {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil))
-}
-
-func managedPath(filename string) (string, error) {
-	absFilename, err := filepath.Abs(filename)
-	if err != nil {
-		return "", err
-	}
-
-	for _, directory := range directories {
-		base, err := filepath.Abs(directory)
-		if err != nil {
-			continue
-		}
-
-		relative, err := filepath.Rel(base, absFilename)
-		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
-			return filepath.Join(base, filepath.Base(absFilename)), nil
-		}
-	}
-
-	return "", fmt.Errorf("path %q is outside managed directories", filename)
 }

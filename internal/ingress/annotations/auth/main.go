@@ -237,7 +237,7 @@ func (a auth) Parse(ing *networking.Ingress) (interface{}, error) {
 		Realm:      realm,
 		File:       passFilePath,
 		Secured:    true,
-		FileSHA:    file.SHA1Bytes(authFile),
+		FileSHA:    file.SHA256Bytes(authFile),
 		Secret:     name,
 		SecretType: secretType,
 	}, nil

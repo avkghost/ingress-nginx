@@ -17,13 +17,13 @@ limitations under the License.
 package file
 
 import (
-	"crypto/sha1" // #nosec
+	"crypto/sha256"
 	"encoding/hex"
 )
 
-// SHA1Bytes returns the SHA1 of data.
-func SHA1Bytes(data []byte) string {
-	hasher := sha1.New() // #nosec
+// SHA256Bytes returns the SHA-256 digest of data.
+func SHA256Bytes(data []byte) string {
+	hasher := sha256.New()
 
 	if _, err := hasher.Write(data); err != nil {
 		return ""

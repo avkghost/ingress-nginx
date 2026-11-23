@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1" // #nosec
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -124,7 +124,7 @@ func CreateSSLCert(cert, key []byte, uid string) (*ingress.SSLCert, error) {
 		}
 	}
 
-	hasher := sha1.New() // #nosec
+	hasher := sha256.New()
 	hasher.Write(pemCert.Raw)
 
 	return &ingress.SSLCert{
@@ -238,7 +238,7 @@ func ConfigureCRL(name string, crl []byte, sslCert *ingress.SSLCert) error {
 	}
 
 	sslCert.CRLFileName = crlFileName
-	sslCert.CRLSHA = file.SHA1Bytes(crl)
+	sslCert.CRLSHA = file.SHA256Bytes(crl)
 
 	return nil
 }
@@ -390,7 +390,7 @@ func GetFakeSSLCert() *ingress.SSLCert {
 	}
 
 	sslCert.PemFileName = path
-	sslCert.PemSHA = file.SHA1Bytes([]byte(sslCert.PemCertKey))
+	sslCert.PemSHA = file.SHA256Bytes([]byte(sslCert.PemCertKey))
 
 	return sslCert
 }

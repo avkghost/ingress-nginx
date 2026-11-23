@@ -18,17 +18,17 @@ package file
 
 import "testing"
 
-func TestSHA1(t *testing.T) {
+func TestSHA256(t *testing.T) {
 	tests := []struct {
 		content []byte
 		sha     string
 	}{
-		{[]byte(""), "da39a3ee5e6b4b0d3255bfef95601890afd80709"},
-		{[]byte("hello world"), "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed"},
+		{[]byte(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+		{[]byte("hello world"), "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"},
 	}
 
 	for _, test := range tests {
-		sha := SHA1Bytes(test.content)
+		sha := SHA256Bytes(test.content)
 
 		if sha != test.sha {
 			t.Fatalf("expected %v but returned %s", test.sha, sha)

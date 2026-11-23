@@ -36,19 +36,19 @@ type SSLCert struct {
 	// CAFileName contains the path to the file with the root certificate
 	CAFileName string `json:"caFileName"`
 
-	// CASHA contains the sha1 of the ca file.
+	// CASHA contains the SHA-256 digest of the CA file.
 	// This is used to detect changes in the secret that contains certificates
 	CASHA string `json:"caSha"`
 
 	// CRLFileName contains the path to the file with the Certificate Revocation List
 	CRLFileName string `json:"crlFileName"`
-	// CRLSHA contains the sha1 of the pem file.
+	// CRLSHA contains the SHA-256 digest of the PEM file.
 	CRLSHA string `json:"crlSha"`
 
 	// PemFileName contains the path to the file with the certificate and key concatenated
 	PemFileName string `json:"pemFileName"`
 
-	// PemSHA contains the sha1 of the pem file.
+	// PemSHA contains the SHA-256 digest of the PEM file.
 	// This is used to detect changes in the secret that contains certificates
 	PemSHA string `json:"pemSha"`
 

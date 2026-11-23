@@ -53,11 +53,11 @@ type AuthSSLCert struct {
 	Secret string `json:"secret"`
 	// CAFileName contains the path to the secrets 'ca.crt'
 	CAFileName string `json:"caFilename"`
-	// CASHA contains the SHA1 hash of the 'ca.crt' or combinations of (tls.crt, tls.key, tls.crt) depending on certs in secret
+	// CASHA contains the SHA-256 digest of the 'ca.crt' or certificate/key combination.
 	CASHA string `json:"caSha"`
 	// CRLFileName contains the path to the secrets 'ca.crl'
 	CRLFileName string `json:"crlFileName"`
-	// CRLSHA contains the SHA1 hash of the 'ca.crl' file
+	// CRLSHA contains the SHA-256 digest of the 'ca.crl' file.
 	CRLSHA string `json:"crlSha"`
 	// PemFileName contains the path to the secrets 'tls.crt' and 'tls.key'
 	PemFileName string `json:"pemFilename"`

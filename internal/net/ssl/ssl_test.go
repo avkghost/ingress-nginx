@@ -194,7 +194,7 @@ func TestConfigureCACert(t *testing.T) {
 func TestConfigureCRL(t *testing.T) {
 	// Demo CRL from https://csrc.nist.gov/projects/pki-testing/sample-certificates-and-crls
 	// Converted to PEM to be tested
-	// SHA-256: 5d2644af46ce27bf519c0a9dacec4fb68c77a0a1c0be8e3d5564f70b334761de
+	// SHA-256: 2179b158ba4372d7d1f33a6ef439d908c5ebf6cd249f638aeea5be49cf5fe724
 	crl := []byte(`-----BEGIN X509 CRL-----
 MIIBYDCBygIBATANBgkqhkiG9w0BAQUFADBDMRMwEQYKCZImiZPyLGQBGRYDY29t
 MRcwFQYKCZImiZPyLGQBGRYHZXhhbXBsZTETMBEGA1UEAxMKRXhhbXBsZSBDQRcN
@@ -233,7 +233,7 @@ fUNCdMGmr8FVF6IzTNYGmCuk/C4=
 	if sslCert.CRLFileName != crlFilename {
 		t.Fatalf("expected a valid CRL file name")
 	}
-	if sslCert.CRLSHA != "5d2644af46ce27bf519c0a9dacec4fb68c77a0a1c0be8e3d5564f70b334761de" {
+	if sslCert.CRLSHA != "2179b158ba4372d7d1f33a6ef439d908c5ebf6cd249f638aeea5be49cf5fe724" {
 		t.Fatalf("the expected CRL SHA wasn't found")
 	}
 }

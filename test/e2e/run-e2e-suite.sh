@@ -72,6 +72,7 @@ fi
 
 echo -e "Starting the e2e test pod"
 
+set +e
 kubectl run --rm \
   --attach \
   --restart=Never \
@@ -84,6 +85,8 @@ kubectl run --rm \
   --env="HTTPBUN_IMAGE=${HTTPBUN_IMAGE}" \
   --overrides='{ "apiVersion": "v1", "spec":{"serviceAccountName": "ingress-nginx-e2e"}}' \
   e2e --image=nginx-ingress-controller:e2e
+e2e_status=$?
+set -e
 
 # Get the junit-reports stored in the configMaps created during e2etests
 echo "Getting the report file out now.."
@@ -91,5 +94,9 @@ reportsDir="test/junitreports"
 reportFile="report-e2e-test-suite.xml.gz"
 mkdir -p $reportsDir
 cd $reportsDir
-kubectl get cm $reportFile -o "jsonpath={.binaryData['${reportFile//\./\\.}']}" | base64 -d | gunzip > ${reportFile%\.gz}
-echo "done getting the report file out.."
+if kubectl get cm $reportFile -o "jsonpath={.binaryData['${reportFile//\./\\.}']}" | base64 -d | gunzip > ${reportFile%\.gz}; then
+  echo "done getting the report file out.."
+else
+  echo "warning: e2e report ConfigMap $reportFile was not available" >&2
+fi
+exit "$e2e_status"

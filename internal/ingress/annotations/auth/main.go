@@ -260,6 +260,7 @@ func dumpSecretAuthFile(filename, authDirectory string, secret *api.Secret) erro
 	}
 	safeFilename := filepath.Join(baseDir, filepath.Base(targetPath))
 
+	// codeql[go/path-injection] safeFilename is confined to the configured auth directory above.
 	err := os.WriteFile(safeFilename, val, file.ReadWriteByUser)
 	if err != nil {
 		return ing_errors.LocationDeniedError{
@@ -287,6 +288,7 @@ func dumpSecretAuthMap(filename, authDirectory string, secret *api.Secret) error
 	}
 	safeFilename := filepath.Join(baseDir, filepath.Base(targetPath))
 
+	// codeql[go/path-injection] safeFilename is confined to the configured auth directory above.
 	err := os.WriteFile(safeFilename, []byte(builder.String()), file.ReadWriteByUser)
 	if err != nil {
 		return ing_errors.LocationDeniedError{

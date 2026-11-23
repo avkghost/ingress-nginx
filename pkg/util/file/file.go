@@ -35,6 +35,7 @@ func SHA1(filename string) string {
 		return ""
 	}
 
+	// codeql[go/path-injection] managedPath restricts this path to the fixed SSL/auth directories.
 	s, err := os.ReadFile(safeFilename)
 	if err != nil {
 		klog.ErrorS(err, "Error reading file", "path", filename)

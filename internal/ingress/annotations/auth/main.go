@@ -216,12 +216,12 @@ func (a auth) Parse(ing *networking.Ingress) (interface{}, error) {
 
 	switch secretType {
 	case fileAuth:
-		err = dumpSecretAuthFile(passFilePath, secret)
+		err = dumpSecretAuthFile(passFilePath, a.authDirectory, secret)
 		if err != nil {
 			return nil, err
 		}
 	case mapAuth:
-		err = dumpSecretAuthMap(passFilePath, secret)
+		err = dumpSecretAuthMap(passFilePath, a.authDirectory, secret)
 		if err != nil {
 			return nil, err
 		}
@@ -244,7 +244,7 @@ func (a auth) Parse(ing *networking.Ingress) (interface{}, error) {
 
 // dumpSecretAuthFile dumps the content of a secret into a file
 // in the expected format for the specified authorization
-func dumpSecretAuthFile(filename string, secret *api.Secret) error {
+func dumpSecretAuthFile(filename, authDirectory string, secret *api.Secret) error {
 	val, ok := secret.Data["auth"]
 	if !ok {
 		return ing_errors.LocationDeniedError{
@@ -252,7 +252,15 @@ func dumpSecretAuthFile(filename string, secret *api.Secret) error {
 		}
 	}
 
-	err := os.WriteFile(filename, val, file.ReadWriteByUser)
+	baseDir, baseErr := filepath.Abs(authDirectory)
+	targetPath, targetErr := filepath.Abs(filename)
+	relativePath, relativeErr := filepath.Rel(baseDir, targetPath)
+	if baseErr != nil || targetErr != nil || relativeErr != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return ing_errors.LocationDeniedError{Reason: fmt.Errorf("password file path is outside auth directory: %s", filename)}
+	}
+	safeFilename := filepath.Join(baseDir, filepath.Base(targetPath))
+
+	err := os.WriteFile(safeFilename, val, file.ReadWriteByUser)
 	if err != nil {
 		return ing_errors.LocationDeniedError{
 			Reason: fmt.Errorf("unexpected error creating password file: %w", err),
@@ -262,7 +270,7 @@ func dumpSecretAuthFile(filename string, secret *api.Secret) error {
 	return nil
 }
 
-func dumpSecretAuthMap(filename string, secret *api.Secret) error {
+func dumpSecretAuthMap(filename, authDirectory string, secret *api.Secret) error {
 	builder := &strings.Builder{}
 	for user, pass := range secret.Data {
 		builder.WriteString(user)
@@ -271,7 +279,15 @@ func dumpSecretAuthMap(filename string, secret *api.Secret) error {
 		builder.WriteString("\n")
 	}
 
-	err := os.WriteFile(filename, []byte(builder.String()), file.ReadWriteByUser)
+	baseDir, baseErr := filepath.Abs(authDirectory)
+	targetPath, targetErr := filepath.Abs(filename)
+	relativePath, relativeErr := filepath.Rel(baseDir, targetPath)
+	if baseErr != nil || targetErr != nil || relativeErr != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return ing_errors.LocationDeniedError{Reason: fmt.Errorf("password file path is outside auth directory: %s", filename)}
+	}
+	safeFilename := filepath.Join(baseDir, filepath.Base(targetPath))
+
+	err := os.WriteFile(safeFilename, []byte(builder.String()), file.ReadWriteByUser)
 	if err != nil {
 		return ing_errors.LocationDeniedError{
 			Reason: fmt.Errorf("unexpected error creating password file: %w", err),

@@ -42,11 +42,15 @@ func TestSHA1(t *testing.T) {
 			t.Error(err)
 		}
 
-		sha := SHA1(f.Name())
+		sha := SHA1Bytes(test.content)
 		f.Close()
 
 		if sha != test.sha {
 			t.Fatalf("expected %v but returned %s", test.sha, sha)
+		}
+
+		if got := SHA1(f.Name()); got != "" {
+			t.Fatalf("expected unmanaged path to be rejected, got %s", got)
 		}
 	}
 

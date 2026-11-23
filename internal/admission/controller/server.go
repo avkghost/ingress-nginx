@@ -97,6 +97,8 @@ func (acs *AdmissionControllerServer) ServeHTTP(w http.ResponseWriter, req *http
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := codec.Encode(result, w); err != nil {
 		klog.ErrorS(err, "failed to encode response body")
 		w.WriteHeader(http.StatusInternalServerError)

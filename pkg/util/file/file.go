@@ -19,20 +19,59 @@ package file
 import (
 	"crypto/sha1" // #nosec
 	"encoding/hex"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"k8s.io/klog/v2"
 )
 
 // SHA1 returns the SHA1 of a file.
 func SHA1(filename string) string {
-	hasher := sha1.New() // #nosec
-	s, err := os.ReadFile(filename)
+	safeFilename, err := managedPath(filename)
+	if err != nil {
+		klog.ErrorS(err, "Refusing to hash unmanaged file path", "path", filename)
+		return ""
+	}
+
+	s, err := os.ReadFile(safeFilename)
 	if err != nil {
 		klog.ErrorS(err, "Error reading file", "path", filename)
 		return ""
 	}
 
-	hasher.Write(s)
+	return SHA1Bytes(s)
+}
+
+// SHA1Bytes returns the SHA1 of data.
+func SHA1Bytes(data []byte) string {
+	hasher := sha1.New() // #nosec
+
+	if _, err := hasher.Write(data); err != nil {
+		return ""
+	}
+
 	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func managedPath(filename string) (string, error) {
+	absFilename, err := filepath.Abs(filename)
+	if err != nil {
+		return "", err
+	}
+
+	for _, directory := range directories {
+		base, err := filepath.Abs(directory)
+		if err != nil {
+			continue
+		}
+
+		relative, err := filepath.Rel(base, absFilename)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative) {
+			return filepath.Join(base, filepath.Base(absFilename)), nil
+		}
+	}
+
+	return "", fmt.Errorf("path %q is outside managed directories", filename)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"net/http/fcgi"
@@ -16,7 +17,7 @@ func hello(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := keys[0]
-	fmt.Fprint(w, "Hello "+key+"!")
+	fmt.Fprint(w, "Hello "+html.EscapeString(key)+"!")
 }
 
 func main() {

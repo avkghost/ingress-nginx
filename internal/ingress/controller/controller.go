@@ -497,7 +497,8 @@ func (n *NGINXController) getStreamServices(configmapName string, proto apiv1.Pr
 	reservedPorts := sets.NewInt(rp...)
 	// svcRef format: <(str)namespace>/<(str)service>:<(intstr)port>[:<("PROXY")decode>:<("PROXY")encode>]
 	for port, svcRef := range configmap.Data {
-		externalPort, err := strconv.Atoi(port) // #nosec
+		parsedExternalPort, err := strconv.ParseInt(port, 10, 32)
+		externalPort := int(parsedExternalPort)
 		if err != nil {
 			klog.Warningf("%q is not a valid %v port number", port, proto)
 			continue
@@ -535,8 +536,7 @@ func (n *NGINXController) getStreamServices(configmapName string, proto apiv1.Pr
 			continue
 		}
 		var endps []ingress.Endpoint
-		/* #nosec */
-		targetPort, err := strconv.Atoi(svcPort) // #nosec
+		parsedTargetPort, err := strconv.ParseInt(svcPort, 10, 32)
 		var zone string
 		if n.cfg.EnableTopologyAwareRouting {
 			zone = getIngressPodZone(svc)
@@ -557,11 +557,10 @@ func (n *NGINXController) getStreamServices(configmapName string, proto apiv1.Pr
 				}
 			}
 		} else {
-			klog.V(3).Infof("Searching Endpoints with %v port number %d for Service %q", proto, targetPort, nsName)
+			klog.V(3).Infof("Searching Endpoints with %v port number %d for Service %q", proto, parsedTargetPort, nsName)
 			for i := range svc.Spec.Ports {
 				sp := svc.Spec.Ports[i]
-				//nolint:gosec // Ignore G109 error
-				if sp.Port == int32(targetPort) {
+				if int64(sp.Port) == parsedTargetPort {
 					if sp.Protocol == proto {
 						endps = getEndpointsFromSlices(svc, &sp, proto, zone, n.store.GetServiceEndpointsSlices)
 						break
@@ -1771,8 +1770,9 @@ func shouldCreateUpstreamForLocationDefaultBackend(upstream *ingress.Backend, lo
 }
 
 func externalNamePorts(name string, svc *apiv1.Service) *apiv1.ServicePort {
-	port, err := strconv.Atoi(name) // #nosec
+	parsedPort, err := strconv.ParseInt(name, 10, 32)
 	if err != nil {
+		parsedPort = 0
 		// not a number. check port names.
 		for _, svcPort := range svc.Spec.Ports {
 			if svcPort.Name != name {
@@ -1793,14 +1793,13 @@ func externalNamePorts(name string, svc *apiv1.Service) *apiv1.ServicePort {
 	}
 
 	for _, svcPort := range svc.Spec.Ports {
-		//nolint:gosec // Ignore G109 error
-		if svcPort.Port != int32(port) {
+		if int64(svcPort.Port) != parsedPort {
 			continue
 		}
 
 		tp := svcPort.TargetPort
 		if tp.IntValue() == 0 {
-			tp = intstr.FromInt(port)
+			tp = intstr.FromInt(int(parsedPort))
 		}
 
 		return &apiv1.ServicePort{
@@ -1812,10 +1811,9 @@ func externalNamePorts(name string, svc *apiv1.Service) *apiv1.ServicePort {
 
 	// ExternalName without port
 	return &apiv1.ServicePort{
-		Protocol: "TCP",
-		//nolint:gosec // Ignore G109 error
-		Port:       int32(port),
-		TargetPort: intstr.FromInt(port),
+		Protocol:   "TCP",
+		Port:       int32(parsedPort),
+		TargetPort: intstr.FromInt(int(parsedPort)),
 	}
 }
 
